@@ -75,7 +75,6 @@ if __name__ == '__main__':
       avgerr = np.mean([abs(mean-datum) for datum in y])
       print("mean: {:.3f}, STD: {:.3f}, RSTD: {:.3%}, AVGERR: {:.3%}".format(mean, std, std/mean, avgerr/mean))
       p.hist(y, bins=args.bins, alpha=0.7, normed=True, label="Interval %sms"%interval)
-    p.legend(loc='best')
 
   elif args.mode == 'ci':
     #funcs = [ci_student, ci_sort, ci_norm]
@@ -90,21 +89,23 @@ if __name__ == '__main__':
         results[i].append(f(y, 0.9)/mean*100)
     for f,r in zip(funcs,results):
       p.plot(r, label=f.__name__)
-    p.legend(loc='best')
     #p.rc('text', usetex=True)
     p.title(r"CI vs Time for %s"%args.test)
     p.xlabel('measurement duration, ms')
     p.ylabel('Relative Confidence Interval, %')
   elif args.mode == 'plot':
-    fname = fname_tpl.format(i=args.interval, test=args.test)
-    x,y = f2list(fname, args.cpufreq)
-    p.plot(x,y)
-    p.title(r"Measurements for *%s* with interval %s"% (args.test, args.interval))
-    p.xlabel('Instructions per cycle, IPC')
-    p.ylabel('Time, ms')
+    p.title(r"Measurements for *%s* with intervals %sms"% (args.test, args.intervals))
+    p.xlabel('Time, ms')
+    p.ylabel('Instructions per cycle, IPC')
+    for interval in args.intervals:
+      fname = fname_tpl.format(i=interval, test=args.test)
+      x,y = f2list(fname, args.cpufreq)
+      p.plot(x, y, label="Interval %s" % interval)
   else:
     sys.exit("unknown operation mode %s" % args.mode)
 
+
+  p.legend(loc='best')
   if args.output:
     p.savefig(args.output)
   else:
