@@ -58,22 +58,24 @@ if __name__ == '__main__':
   ci_g.add_argument('-l', '--level', default=0.9, type=int, help="confedence level")
   hist = parser.add_argument_group('hist', 'Histogram')
   hist.add_argument('-b', '--bins', type=int, default=30, help="Number of bins on histogram")
-  hist.add_argument('-i', '--interval', type=int, default=1, help="For which interval draw bars?")
+  hist.add_argument('-i', '--intervals', type=int, nargs='+', default=[100], help="Select intervals to plot")
   args = parser.parse_args()
+  print(args)
 
 
   fname_tpl = args.prefix+"/{i}/{test}"
 
   if args.mode == 'hist':
-    fname = fname_tpl.format(i=args.interval, test=args.test)
-    print("opening", fname)
-    _,y = f2list(fname, args.cpufreq)
-    mean = np.mean(y)
-    std  = np.std(y)
-    avgerr = np.mean([abs(mean-datum) for datum in y])
-    print("mean: {:.3f}, STD: {:.3f}, RSTD: {:.3%}, AVGERR: {:.3%}".format(mean, std, std/mean, avgerr/mean))
-    p.hist(y, bins=args.bins, normed=True)
-    p.show()
+    for interval in args.intervals:
+      fname = fname_tpl.format(i=interval, test=args.test)
+      print("opening", fname)
+      _,y = f2list(fname, args.cpufreq)
+      mean = np.mean(y)
+      std  = np.std(y)
+      avgerr = np.mean([abs(mean-datum) for datum in y])
+      print("mean: {:.3f}, STD: {:.3f}, RSTD: {:.3%}, AVGERR: {:.3%}".format(mean, std, std/mean, avgerr/mean))
+      p.hist(y, bins=args.bins, alpha=0.7, normed=True, label="Interval %sms"%interval)
+    p.legend(loc='best')
 
   elif args.mode == 'ci':
     #funcs = [ci_student, ci_sort, ci_norm]
@@ -93,7 +95,6 @@ if __name__ == '__main__':
     p.title(r"CI vs Time for %s"%args.test)
     p.xlabel('measurement duration, ms')
     p.ylabel('Relative Confidence Interval, %')
-    p.show()
   elif args.mode == 'plot':
     fname = fname_tpl.format(i=args.interval, test=args.test)
     x,y = f2list(fname, args.cpufreq)
@@ -101,7 +102,10 @@ if __name__ == '__main__':
     p.title(r"Measurements for *%s* with interval %s"% (args.test, args.interval))
     p.xlabel('Instructions per cycle, IPC')
     p.ylabel('Time, ms')
-    if args.output: p.savefig(args.output)
-    else: p.show()
   else:
     sys.exit("unknown operation mode %s" % args.mode)
+
+  if args.output:
+    p.savefig(args.output)
+  else:
+    p.show()
