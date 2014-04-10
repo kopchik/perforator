@@ -9,7 +9,7 @@ from Cython.Distutils import build_ext
 
 perflib = Extension('perflib',
 	sources=['perflib.pyx', '_perf.c'],
-	extra_compile_args=["-std=gnu99"])
+	extra_compile_args=["-std=gnu99","-ggdb"])
 
 
 setup(

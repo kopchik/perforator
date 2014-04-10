@@ -13,7 +13,7 @@
 #include <linux/perf_event.h>
 
 
-long
+int
 perf_event_open(struct perf_event_attr *event, pid_t pid,
                 int cpu, int group_fd, unsigned long flags);
 void*
