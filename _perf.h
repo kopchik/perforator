@@ -4,7 +4,6 @@
 #include <assert.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
-//#define _GNU_SOURCE
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <err.h>
@@ -15,5 +14,7 @@
 
 
 long
-perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
+perf_event_open(struct perf_event_attr *event, pid_t pid,
                 int cpu, int group_fd, unsigned long flags);
+void*
+mymalloc(size_t size);

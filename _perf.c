@@ -2,12 +2,12 @@
 
 
 long
-perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
+perf_event_open(struct perf_event_attr *event, pid_t pid,
                 int cpu, int group_fd, unsigned long flags)
 {
     int ret;
-
-    ret = syscall(__NR_perf_event_open, hw_event, pid, cpu,
+    printf("!!! %lld\n", __NR_perf_event_open);
+    ret = syscall(__NR_perf_event_open, event, pid, cpu,
                    group_fd, flags);
     return ret;
 }
@@ -46,12 +46,6 @@ int open(pid_t pid) {
   return fd;
 }
 
-#define SIZE 1000
-typedef struct {
-  int     fd; // result of perf_event_open()
-  int64_t joint[1000];
-  int64_t ideal[1000];
-} mon_t;
 
 int mainXXXX(int argc, char** argv) {
   pid_t pids[argc];
