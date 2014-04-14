@@ -26,6 +26,7 @@ cdef extern from "linux/perf_event.h":
   cdef int PERF_IOC_FLAG_GROUP
   cdef int PERF_FORMAT_TOTAL_TIME_ENABLED
   cdef int PERF_FORMAT_TOTAL_TIME_RUNNING
+  cdef int PERF_EVENT_IOC_ENABLE
 
 cdef extern from "_perf.h":
   void* mymalloc(size_t size)
@@ -42,7 +43,7 @@ cdef struct Result:
 
 
 cdef class Task:
-  cdef pid_t pid
+  cpdef pid_t pid
   cdef int ifd, cfd
 
   def __cinit__(self, pid_t pid=0):
@@ -57,7 +58,7 @@ cdef class Task:
 
     pe.size = pe_size
     pe.type = PERF_TYPE_HARDWARE
-    pe.disabled = 0
+    pe.disabled = 1
     pe.read_format = PERF_FORMAT_GROUP | PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING
     pe.config = PERF_COUNT_HW_INSTRUCTIONS
     self.ifd = perf_event_open(pe, pid, -1, -1, 0)
@@ -65,21 +66,32 @@ cdef class Task:
     pe.config = PERF_COUNT_HW_CPU_CYCLES
     self.cfd = perf_event_open(pe, pid, -1, self.ifd, 0)
 
+    r = ioctl(self.ifd, PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP)
+    assert r != -1, "ioctl PERF_EVENT_IOC_ENABLE failed"
+
   cpdef measure(self, double interval):
-    cdef int r
     cdef Result cnts
+    cdef int r
 
     r = ioctl(self.ifd, PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP)
     assert r != -1, "ioctl PERF_EVENT_IOC_RESET failed"
     usleep(<useconds_t>(interval*(10.0**6)))  # convert seconds to microseconds
     r = read(self.ifd, &cnts, sizeof(cnts))
     assert r == sizeof(cnts)
-    print("!", cnts.time_running, cnts.time_enabled)
     assert cnts.time_running == cnts.time_enabled
     return (cnts.instr, cnts.cycles)
 
   cpdef measurex(self, double interval, int num):
     return [self.measure(interval) for _ in range(num)]
+
+  def freeze(self, tasks):
+    for t in tasks:
+      if t == self: continue
+      t.stop()
+
+  def defrost(self, tasks):
+    for t in tasks:
+      t.cont()
 
   cpdef stop(self):
     kill(self.pid, SIGSTOP)
