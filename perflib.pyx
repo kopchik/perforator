@@ -43,8 +43,11 @@ cdef struct Result:
 
 
 cdef class Task:
-  cpdef pid_t pid
+  cdef pid_t pid
   cdef int ifd, cfd
+
+  def __repr__(self):
+    return "Task(%s)"% self.pid
 
   def __cinit__(self, pid_t pid=0):
     cdef int pe_size

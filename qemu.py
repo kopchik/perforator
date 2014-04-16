@@ -6,6 +6,7 @@ from libvmc import Drive, Bridged, main, manager
 #from perflib import Task
 from subprocess import check_call
 from socket import socketpair
+from collections import defaultdict
 import shlex
 
 vms = []
@@ -14,10 +15,14 @@ def kvmstat(pid, events, time, interval):
   CMD = "perf kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
   read, write = socketpair()
   cmd = CMD.format(pid=pid, events=",".join(events), fd=write.fileno(), interval=interval, time=time)
-  check_call(shlex.split(cmd), pass_fds=[write.fileno()])
-  result = read.recv(100000)
-  print(result)
-  return None
+  print(cmd)
+  check_call(shlex.split(cmd), pass_fds=[write.fileno()])  # TODO: buf overflow??
+  result = read.recv(100000).decode()
+  r = defaultdict(list)
+  for s in result.splitlines():
+    _,rawcnt,_,ev = s.split(',')
+    r[ev].append(int(rawcnt))
+  return r
 
 
 class Template(Template):
@@ -37,9 +42,12 @@ class Template(Template):
     return self.task.measurex(interval, num)
 
   def stat(self, time=1, interval=100):
-    return kvmstat(self.pid, ['instructions', 'cycles'], time, interval)
+    r = kvmstat(self.pid, ['instructions', 'cycles'], time, interval)
+    ins = r['instructions']
+    cycles = r['cycles']
+    return ins, cycles
 
-for i, cpu in enumerate(range(8)):
+for i, cpu in enumerate(topology.cpus_no_ht):
   vm = Template(
       name = "vm%s"%i,
       auto = True,
