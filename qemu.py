@@ -10,18 +10,30 @@ from collections import defaultdict
 import shlex
 
 vms = []
+PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
 
 def kvmstat(pid, events, time, interval):
-  CMD = "perf kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
+  CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
   read, write = socketpair()
-  cmd = CMD.format(pid=pid, events=",".join(events), fd=write.fileno(), interval=interval, time=time)
-  print(cmd)
+  cmd = CMD.format(perf=PERF, pid=pid, events=",".join(events), \
+                   fd=write.fileno(), interval=interval, time=time)
   check_call(shlex.split(cmd), pass_fds=[write.fileno()])  # TODO: buf overflow??
   result = read.recv(100000).decode()
   r = defaultdict(list)
+  nc = 0
   for s in result.splitlines():
-    _,rawcnt,_,ev = s.split(',')
+    try:
+      _,rawcnt,_,ev = s.split(',')
+    except Exception as err:
+      print(s,err)
+      continue
+    if rawcnt == '<not counted>':
+      nc += 1
+      continue
     r[ev].append(int(rawcnt))
+  ratio = nc/len(result.splitlines())
+  if ratio > 0.3:
+    print("nc", nc, ratio)
   return r
 
 
@@ -29,6 +41,7 @@ class Template(Template):
   task = None
   def shared(self):
     for vm in vms:
+      if vm == self: continue
       vm.unfreeze()
 
   def exclusive(self):
@@ -48,6 +61,7 @@ class Template(Template):
     return ins, cycles
 
 for i, cpu in enumerate(topology.cpus_no_ht):
+#for i, cpu in enumerate(topology.cpus):
   vm = Template(
       name = "vm%s"%i,
       auto = True,
