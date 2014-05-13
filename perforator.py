@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from itertools import permutations
+from threading import Thread
 from time import time, sleep
 from statistics import mean
 from os.path import exists
@@ -11,6 +13,7 @@ from perf.utils import wait_idleness
 from perf.config import basis, IDLENESS
 from useful.mystruct import Struct
 from qemu import vms
+
 
 THRESH = 10 # min CPU usage in %
 
@@ -66,13 +69,66 @@ def rawprofile(vms, time=1.0, freq=100, pause=0.1, num=10):
   return r
 
 
+def real_interference(vms, time, freq=1):
+  result = OrderedDict()
+  interval = int(1/freq*1000)
+  for vm in vms:
+    vm.freeze()
+
+  for predator, victim in permutations(vms, 2):
+    # exclusive
+    victim.unfreeze()
+    exclusive, _ = victim.stat(time, interval)
+    # shared
+    predator.unfreeze()
+    shared, _ = victim.stat(time, interval)
+    # tear down
+    predator.freeze()
+    victim.freeze()
+    key = predator.bname, victim.bname
+    value = mean(shared) / mean(exclusive)
+    print(key, value)
+    result[key] = value
+
+  for vm in vms:
+    vm.unfreeze()
+  return result
+
+
+def reverse(vms, num, time, freq=1):
+  interval = int(1/freq*1000)
+
+  shared = {}
+  print("shared phase")
+  for victim in vms:
+    instr, _ = victim.stat(time, interval)
+    shared[victim.bname] = instr
+
+  exclusive  = defaultdict(list)
+  for predator in vms:
+    print("excluding", predator)
+    for _ in range(num):
+      print('.', end='')
+      predator.freeze()
+      threads = []
+      for victim in vms:
+        if victim == predator: continue
+        def measure():
+          instr, _ = victim.stat(time, interval)
+          key = predator.bname, victim.bname
+          exclusive[key].append(instr)
+        t = Thread(target=measure)
+        threads.append(t)
+      [t.start() for t in threads]
+      [t.join() for t in threads]
+  return Struct(shared=shared, exclusive=exclusive)
+
+
 def generate_load():
   from subprocess import Popen
   for x in range(2):
     p = Popen("burnP6")
     atexit.register(p.kill)
-
-
 
 
 class Zhest:
@@ -86,14 +142,17 @@ class Zhest:
     map = {}
     wait_idleness(IDLENESS*2)
     for bname, vm in zip(self.benchmarks, vms):
-      print("{} for {} {}".format(bname, vm.name, vm.pid))
+      #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
       map[vm.pid] = bname
       p = vm.Popen(cmd)
+      vm.bname = bname
       self.pipes.append(p)
     return map
 
   def __exit__(self, *args):
+    for vm in vms:
+      vm.unfreeze()
     for p in self.pipes:
       p.killall()
     vms[0].shared()
@@ -104,20 +163,26 @@ if __name__ == '__main__':
   parser.add_argument('-t', '--time', type=float, default=0.1, help="measurement time (in _seconds_!)")
   parser.add_argument('-n', '--num', type=int, default=10, help="number of measurements")
   parser.add_argument('-p', '--pause', type=float, default=0.1, help="pause between measurements (in _seconds_!)")
-  parser.add_argument('-f', '--freq', type=int, default=10, help="sampling freq in Hz")
+  parser.add_argument('-f', '--freq', type=float, default=1, help="sampling freq in Hz")
   #parser.add_argument('-s', '--skip', type=int, default=0, help="number of initial samples to skip")
-  parser.add_argument('-o', '--output', help="Where to put results")
+  parser.add_argument('-o', '--output', default=None, help="Where to put results")
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   args = parser.parse_args()
   print("config:", args)
 
-  assert args.output and not exists(args.output), "output %s already exists" % args.output
+  assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
   #benchmarks = "matrix wordpress blosc static sdag sdagp ffmpeg pgbench".split()
-  benchmarks = "matrix wordpress blosc static".split()
+  benchmarks = "matrix wordpress blosc static matrix wordpress blosc static".split()
   with Zhest(benchmarks) as map:
-    raw = rawprofile(vms, time=args.time, freq=args.freq, num=args.num, pause=args.pause)
-    pickle.dump(Struct(args=args, results=raw, mapping=benchmarks), open(args.output, "wb"))
+    #raw = rawprofile(vms, time=args.time, freq=args.freq, num=args.num, pause=args.pause)
+    #raw = real_interference(vms, time=args.time, freq=args.freq)
+    raw = reverse(vms, num=args.num, time=args.time, freq=args.freq)
+    print(raw)
+
+    if args.output:
+      print("pickling")
+      pickle.dump(Struct(args=args, results=raw, mapping=benchmarks), open(args.output, "wb"))
 
   #prepare()
   #pids = get_heavy_tasks()
