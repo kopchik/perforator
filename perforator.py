@@ -160,10 +160,13 @@ def reverse(num:int=1, time:float=1.0, pause:float=0.1, vms=None):
       threadulator(measure, [(vm, exklusiv) for vm in vms if vm != victim])
       victim.unfreeze()
       # calculate results
-      for bench, pShared, pExcl in dictzip(shared, exklusiv):
-        key = victim.bname, bench
-        value = pShared/pExcl
-        result[key].append(value)
+      try:
+        for bench, pShared, pExcl in dictzip(shared, exklusiv):
+          key = victim.bname, bench
+          value = pShared/pExcl
+          result[key].append(value)
+      except KeyError:
+        print("something was wrong, we lost a datapoint")
       sleep(pause)
   return result
 
