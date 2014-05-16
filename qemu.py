@@ -12,7 +12,7 @@ import shlex
 vms = []
 PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
 
-def kvmstat(pid, events, time, interval):
+def kvmistat(pid, events, time, interval):
   CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
   read, write = socketpair()
   cmd = CMD.format(perf=PERF, pid=pid, events=",".join(events), \
@@ -37,6 +37,20 @@ def kvmstat(pid, events, time, interval):
   return r
 
 
+def kvmstat(pid, events, time):
+  CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -p {pid} sleep {time}"
+  read, write = socketpair()
+  cmd = CMD.format(perf=PERF, pid=pid, events=",".join(events), \
+                   fd=write.fileno(), time=time)
+  check_call(shlex.split(cmd), pass_fds=[write.fileno()])  # TODO: buf overflow??
+  result = read.recv(100000).decode()
+  r = {}
+  for s in result.splitlines():
+    rawcnt,_,ev = s.split(',')
+    r[ev] = int(rawcnt)
+  return r
+
+
 class Template(Template):
   task = None
   bname = None  # benchmark name
@@ -55,11 +69,18 @@ class Template(Template):
       self.task = Task(self.pid)
     return self.task.measurex(interval, num)
 
-  def stat(self, time=1, interval=100):
-    r = kvmstat(self.pid, ['instructions', 'cycles'], time, interval)
+  def stat(self, time=1):
+    r = kvmstat(self.pid, ['instructions', 'cycles'], time)
     ins = r['instructions']
     cycles = r['cycles']
     return ins, cycles
+
+  def istat(self, time=1, interval=100):
+    r = kvmistat(self.pid, ['instructions', 'cycles'], time, interval)
+    ins = r['instructions']
+    cycles = r['cycles']
+    return ins, cycles
+
 
 for i, cpu in enumerate(topology.cpus_no_ht):
 #for i, cpu in enumerate(topology.cpus):
