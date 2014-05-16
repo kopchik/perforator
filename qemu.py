@@ -11,6 +11,7 @@ import shlex
 
 vms = []
 PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
+class NotCountedError(Exception): pass
 
 def kvmistat(pid, events, time, interval):
   CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
@@ -47,6 +48,8 @@ def kvmstat(pid, events, time):
   r = {}
   for s in result.splitlines():
     rawcnt,_,ev = s.split(',')
+    if rawcnt == '<not counted>':
+      raise NotCountedError
     r[ev] = int(rawcnt)
   return r
 
@@ -73,6 +76,8 @@ class Template(Template):
     r = kvmstat(self.pid, ['instructions', 'cycles'], time)
     ins = r['instructions']
     cycles = r['cycles']
+    if ins == 0 or cycles == 0:
+      raise NotCountedError
     return ins, cycles
 
   def istat(self, time=1, interval=100):
