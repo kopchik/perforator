@@ -5,6 +5,7 @@ from threading import Thread
 from time import time, sleep
 from statistics import mean
 from os.path import exists
+from useful.small import dictzip
 import argparse
 import atexit
 import pickle
@@ -94,16 +95,42 @@ def real_interference(vms, time, freq=1):
     vm.unfreeze()
   return result
 
+def threadulator(f, params):
+  threads = []
+  for param in params:
+    t = Thread(target=f, args=param)
+    threads.append(t)
+  [t.start() for t in threads]
+  [t.join() for t in threads]
+  
 
-def reverse(vms, num, time, freq=1):
-  interval = int(1/freq*1000)
+def reverse(vms, num=1, time=1):
+  result = defaultdict(list)
 
-  shared = {}
-  print("shared phase")
-  for victim in vms:
-    instr, _ = victim.stat(time, interval)
-    shared[victim.bname] = instr
+  def measure(vm, r):
+    ins, cycles = vm.stat(time)
+    r[vm.bname] = ins/cycles
 
+  for i in range(num):
+    print("measure %s out of %s" % (i, num))
+    for victim in vms:
+      """victim is a VM that we are going to freeze"""
+      shared, exklusiv = {}, {}
+      threadulator(measure, [(vm, shared) for vm in vms if vm != victim])
+
+      victim.freeze()
+      threadulator(measure, [(vm, exklusiv) for vm in vms if vm != victim])
+      print (exklusiv)
+      for bench, pShared, pExcl in dictzip(shared, exklusiv):
+        key = victim.bname, bench
+        value = pShared/pExcl
+        result[key].append(value)
+      victim.unfreeze()
+  return result
+
+
+
+  print("excluding state")
   exclusive  = defaultdict(list)
   for predator in vms:
     print("excluding", predator)
@@ -173,11 +200,12 @@ if __name__ == '__main__':
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
   #benchmarks = "matrix wordpress blosc static sdag sdagp ffmpeg pgbench".split()
-  benchmarks = "matrix wordpress blosc static matrix wordpress blosc static".split()
+  #benchmarks = "matrix wordpress blosc static matrix wordpress blosc static".split()
+  benchmarks = "matrix wordpress blosc static".split()
   with Zhest(benchmarks) as map:
     #raw = rawprofile(vms, time=args.time, freq=args.freq, num=args.num, pause=args.pause)
     #raw = real_interference(vms, time=args.time, freq=args.freq)
-    raw = reverse(vms, num=args.num, time=args.time, freq=args.freq)
+    raw = reverse(vms, num=args.num, time=args.time)
     print(raw)
 
     if args.output:
