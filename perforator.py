@@ -5,7 +5,7 @@ from threading import Thread
 from time import time, sleep
 from statistics import mean
 from os.path import exists
-from useful.small import dictzip
+from useful.small import dictzip, invoke
 import argparse
 import atexit
 import pickle
@@ -58,6 +58,13 @@ def get_heavy_tasks(thr=THRESH, t=0.3):
       print("{pid:<7} {name:<12} {cpu}".format(pid=p.pid, name=p.name(), cpu=cpu))
       r.append(p.pid)
   return r
+
+
+def generate_load():
+  from subprocess import Popen
+  for x in range(2):
+    p = Popen("burnP6")
+    atexit.register(p.kill)
 
 
 def unpack(tuples):
@@ -133,7 +140,8 @@ def threadulator(f, params):
   [t.join() for t in threads]
 
 
-def reverse(vms, num=1, time=1):
+def reverse(num:int=1, time:float=1, vms=None):
+  assert vms, "vms is a mandatory argument"
   result = defaultdict(list)
 
   def measure(vm, r):
@@ -180,23 +188,13 @@ def reverse(vms, num=1, time=1):
   return Struct(shared=shared, exclusive=exclusive)
 
 
-def generate_load():
-  from subprocess import Popen
-  for x in range(2):
-    p = Popen("burnP6")
-    atexit.register(p.kill)
-
-
-
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
-  parser.add_argument('-t', '--time', type=float, default=0.1, help="measurement time (in _seconds_!)")
-  parser.add_argument('-n', '--num', type=int, default=10, help="number of measurements")
-  parser.add_argument('-p', '--pause', type=float, default=0.1, help="pause between measurements (in _seconds_!)")
-  parser.add_argument('-f', '--freq', type=float, default=1, help="sampling freq in Hz")
   #parser.add_argument('-s', '--skip', type=int, default=0, help="number of initial samples to skip")
   parser.add_argument('-o', '--output', default=None, help="Where to put results")
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
+  parser.add_argument('-t', '--test', help="test specification")
+  parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
   args = parser.parse_args()
   print("config:", args)
 
@@ -208,11 +206,15 @@ if __name__ == '__main__':
   with Setup(benchmarks) as map:
     #raw = rawprofile(vms, time=args.time, freq=args.freq, num=args.num, pause=args.pause)
     #raw = real_interference(vms, time=args.time, freq=args.freq)
-    raw = reverse(vms, num=args.num, time=args.time)
-    print(raw)
+
+    func, params = invoke(args.test, globals(), vms=vms)
+    print("invoking", func.__name__, "with", params)
+    result = func(**params)
+    if args.print:
+      print(result)
 
     if args.output:
-      print("pickling")
+      print("pickling to", args.aoutput)
       pickle.dump(Struct(args=args, results=raw, mapping=benchmarks), open(args.output, "wb"))
 
   #prepare()
