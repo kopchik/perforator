@@ -2,16 +2,16 @@
 from collections import OrderedDict, defaultdict
 from itertools import permutations
 from threading import Thread
-from time import time, sleep
 from statistics import mean
 from os.path import exists
-from useful.small import dictzip, invoke
+from time import sleep
 import argparse
 import atexit
 import pickle
 
 from perf.utils import wait_idleness
 from perf.config import basis, IDLENESS
+from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from qemu import vms
 
@@ -65,6 +65,16 @@ def generate_load():
   for x in range(2):
     p = Popen("burnP6")
     atexit.register(p.kill)
+
+
+def threadulator(f, params):
+  '''execute routine actions in parallel'''
+  threads = []
+  for param in params:
+    t = Thread(target=f, args=param)
+    threads.append(t)
+  [t.start() for t in threads]
+  [t.join() for t in threads]
 
 
 def unpack(tuples):
@@ -130,17 +140,7 @@ def real_interference(vms, time, freq=1):
   return result
 
 
-def threadulator(f, params):
-  '''execute routine actions in parallel'''
-  threads = []
-  for param in params:
-    t = Thread(target=f, args=param)
-    threads.append(t)
-  [t.start() for t in threads]
-  [t.join() for t in threads]
-
-
-def reverse(num:int=1, time:float=1, vms=None):
+def reverse(num:int=1, time:float=1.0, pause:float=0.1, vms=None):
   assert vms, "vms is a mandatory argument"
   result = defaultdict(list)
 
@@ -149,43 +149,23 @@ def reverse(num:int=1, time:float=1, vms=None):
     r[vm.bname] = ins/cycles
 
   for i in range(num):
-    print("measure %s out of %s" % (i, num))
+    print("measure %s out of %s" % (i+1, num))
     for victim in vms:
       """victim is a VM that we are going to freeze"""
       shared, exklusiv = {}, {}
+      # shared phase
       threadulator(measure, [(vm, shared) for vm in vms if vm != victim])
-
+      # "stop victim" phase
       victim.freeze()
       threadulator(measure, [(vm, exklusiv) for vm in vms if vm != victim])
-      print (exklusiv)
+      victim.unfreeze()
+      # calculate results
       for bench, pShared, pExcl in dictzip(shared, exklusiv):
         key = victim.bname, bench
         value = pShared/pExcl
         result[key].append(value)
-      victim.unfreeze()
+      sleep(pause)
   return result
-
-
-
-  print("excluding state")
-  exclusive  = defaultdict(list)
-  for predator in vms:
-    print("excluding", predator)
-    for _ in range(num):
-      print('.', end='')
-      predator.freeze()
-      threads = []
-      for victim in vms:
-        if victim == predator: continue
-        def measure():
-          instr, _ = victim.stat(time, interval)
-          key = predator.bname, victim.bname
-          exclusive[key].append(instr)
-        t = Thread(target=measure)
-        threads.append(t)
-      [t.start() for t in threads]
-      [t.join() for t in threads]
-  return Struct(shared=shared, exclusive=exclusive)
 
 
 if __name__ == '__main__':
@@ -195,18 +175,13 @@ if __name__ == '__main__':
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   parser.add_argument('-t', '--test', help="test specification")
   parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
+  parser.add_argument('-b', '--benches', nargs='+', default="matrix wordpress blosc static".split(), help="which benchmarks to run")
   args = parser.parse_args()
   print("config:", args)
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
-  #benchmarks = "matrix wordpress blosc static sdag sdagp ffmpeg pgbench".split()
-  #benchmarks = "matrix wordpress blosc static matrix wordpress blosc static".split()
-  benchmarks = "matrix wordpress blosc static".split()
-  with Setup(benchmarks) as map:
-    #raw = rawprofile(vms, time=args.time, freq=args.freq, num=args.num, pause=args.pause)
-    #raw = real_interference(vms, time=args.time, freq=args.freq)
-
+  with Setup(args.benches):
     func, params = invoke(args.test, globals(), vms=vms)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
@@ -214,10 +189,11 @@ if __name__ == '__main__':
       print(result)
 
     if args.output:
-      print("pickling to", args.aoutput)
-      pickle.dump(Struct(args=args, results=raw, mapping=benchmarks), open(args.output, "wb"))
-
-  #prepare()
-  #pids = get_heavy_tasks()
-  #tasks = [Task(p) for p in pids]
-  #profile(tasks, args.interval, args.num_samples)
+      if args.output == 'auto':
+        params.pop('vms')
+        csv = ",".join('%s=%s' % (k,v) for k,v in sorted(params.items()))
+        fname = 'results/%s_%s.pickle' % (func.__name__, csv)
+      else:
+        fname = args.output
+      print("pickling to", fname)
+      pickle.dump(Struct(args=args, result=result), open(fname, "wb"))
