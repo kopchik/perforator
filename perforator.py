@@ -19,6 +19,32 @@ from qemu import vms
 THRESH = 10 # min CPU usage in %
 
 
+class Setup:
+  pipes = None
+
+  def __init__(self, benchmarks):
+    self.benchmarks = benchmarks
+    self.pipes = []
+
+  def __enter__(self):
+    map = {}
+    wait_idleness(IDLENESS*2)
+    for bname, vm in zip(self.benchmarks, vms):
+      #print("{} for {} {}".format(bname, vm.name, vm.pid))
+      cmd = basis[bname]
+      map[vm.pid] = bname
+      p = vm.Popen(cmd)
+      vm.bname = bname
+      self.pipes.append(p)
+    return map
+
+  def __exit__(self, *args):
+    for vm in vms:
+      vm.unfreeze()
+    for p in self.pipes:
+      p.killall()
+
+
 def get_heavy_tasks(thr=THRESH, t=0.3):
   from psutil import process_iter
   [p.cpu_percent() for p in process_iter()]
@@ -86,6 +112,7 @@ def real_interference(vms, time, freq=1):
     # tear down
     predator.freeze()
     victim.freeze()
+    # save results
     key = predator.bname, victim.bname
     value = mean(shared) / mean(exclusive)
     print(key, value)
@@ -95,14 +122,16 @@ def real_interference(vms, time, freq=1):
     vm.unfreeze()
   return result
 
+
 def threadulator(f, params):
+  '''execute routine actions in parallel'''
   threads = []
   for param in params:
     t = Thread(target=f, args=param)
     threads.append(t)
   [t.start() for t in threads]
   [t.join() for t in threads]
-  
+
 
 def reverse(vms, num=1, time=1):
   result = defaultdict(list)
@@ -158,32 +187,6 @@ def generate_load():
     atexit.register(p.kill)
 
 
-class Zhest:
-  pipes = None
-
-  def __init__(self, benchmarks):
-    self.pipes = []
-    self.benchmarks = benchmarks
-
-  def __enter__(self):
-    map = {}
-    wait_idleness(IDLENESS*2)
-    for bname, vm in zip(self.benchmarks, vms):
-      #print("{} for {} {}".format(bname, vm.name, vm.pid))
-      cmd = basis[bname]
-      map[vm.pid] = bname
-      p = vm.Popen(cmd)
-      vm.bname = bname
-      self.pipes.append(p)
-    return map
-
-  def __exit__(self, *args):
-    for vm in vms:
-      vm.unfreeze()
-    for p in self.pipes:
-      p.killall()
-    vms[0].shared()
-
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
@@ -202,7 +205,7 @@ if __name__ == '__main__':
   #benchmarks = "matrix wordpress blosc static sdag sdagp ffmpeg pgbench".split()
   #benchmarks = "matrix wordpress blosc static matrix wordpress blosc static".split()
   benchmarks = "matrix wordpress blosc static".split()
-  with Zhest(benchmarks) as map:
+  with Setup(benchmarks) as map:
     #raw = rawprofile(vms, time=args.time, freq=args.freq, num=args.num, pause=args.pause)
     #raw = real_interference(vms, time=args.time, freq=args.freq)
     raw = reverse(vms, num=args.num, time=args.time)
