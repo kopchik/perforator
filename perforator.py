@@ -215,13 +215,14 @@ if __name__ == '__main__':
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   parser.add_argument('-t', '--test', help="test specification")
   parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
-  parser.add_argument('-b', '--benches', nargs='+', default="matrix wordpress blosc static sdag sdagp pgbench wordpress".split(), help="which benchmarks to run")
+  parser.add_argument('-b', '--benches', nargs='+', default="matrix wordpress blosc static sdag sdagp pgbench ffmpeg".split(), help="which benchmarks to run")
   args = parser.parse_args()
   print("config:", args)
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
   with Setup(args.benches):
+    sleep(15)  # warm-up time
     func, params = invoke(args.test, globals(), vms=vms)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
