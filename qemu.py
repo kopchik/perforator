@@ -87,8 +87,8 @@ class Template(Template):
     return ins, cycles
 
 
-for i, cpu in enumerate(topology.cpus_no_ht):
-#for i, cpu in enumerate(topology.cpus):
+#for i, cpu in enumerate(topology.cpus_no_ht):
+for i, cpu in enumerate(topology.cpus):
   vm = Template(
       name = "vm%s"%i,
       auto = True,

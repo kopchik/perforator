@@ -5,6 +5,7 @@ from threading import Thread
 from statistics import mean
 from os.path import exists
 from time import sleep
+from math import ceil
 import argparse
 import atexit
 import pickle
@@ -13,7 +14,7 @@ from perf.utils import wait_idleness
 from perf.config import basis, IDLENESS
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
-from qemu import vms
+from qemu import vms, NotCountedError
 
 
 THRESH = 10 # min CPU usage in %
@@ -170,6 +171,42 @@ def reverse(num:int=1, time:float=1.0, pause:float=0.1, vms=None):
       sleep(pause)
   return result
 
+def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
+  pure = defaultdict(list)
+  quasi = defaultdict(list)
+
+  # STEP 1: purely isolated performance
+  for vm in vms:
+    vm.freeze()
+
+  for vm in vms:
+    vm.unfreeze()
+    for _ in range(num):
+      try:
+        ins, cycles = vm.stat(interval)
+        pure[vm.bname].append(ins/cycles)
+      except NotCountedError:
+        pass
+    vm.freeze()
+
+  for vm in vms:
+    vm.unfreeze()
+
+  # STEP 2: quasi-isolated performance
+  for vm in vms:
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      try:
+        ins, cycles = vm.stat(interval)
+        quasi[vm.bname].append(ins/cycles)
+      except NotCountedError:
+        pass
+      vm.shared()
+
+  return Struct(pure=pure, quasi=quasi)
+
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
@@ -178,7 +215,7 @@ if __name__ == '__main__':
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   parser.add_argument('-t', '--test', help="test specification")
   parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
-  parser.add_argument('-b', '--benches', nargs='+', default="matrix wordpress blosc static".split(), help="which benchmarks to run")
+  parser.add_argument('-b', '--benches', nargs='+', default="matrix wordpress blosc static sdag sdagp pgbench wordpress".split(), help="which benchmarks to run")
   args = parser.parse_args()
   print("config:", args)
 
