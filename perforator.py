@@ -26,6 +26,9 @@ class Setup:
   def __init__(self, benchmarks):
     self.benchmarks = benchmarks
     self.pipes = []
+    if any(vm.start() for vm in vms):
+      print("some of vms were not started, giving it time to start")
+      sleep(10)
 
   def __enter__(self):
     map = {}
@@ -113,41 +116,46 @@ def rawprofile(vms, time=1.0, freq=100, pause=0.1, num=10):
       sleep(pause)  # let system stabilze after defrost
   return r
 
-
-def real_interference(vms, time, freq=1):
-  result = OrderedDict()
-  interval = int(1/freq*1000)
+def reverse_isolated(num, time, pause, vms=None):
+  result = defaultdict(list)
   for vm in vms:
     vm.freeze()
 
-  for predator, victim in permutations(vms, 2):
-    # exclusive
-    victim.unfreeze()
-    exclusive, _ = victim.stat(time, interval)
-    # shared
-    predator.unfreeze()
-    shared, _ = victim.stat(time, interval)
-    # tear down
-    predator.freeze()
-    victim.freeze()
-    # save results
-    key = predator.bname, victim.bname
-    value = mean(shared) / mean(exclusive)
-    print(key, value)
-    result[key] = value
+  for i in range(num):
+    print("measure %s out of %s" % (i+1, num))
+    for predator, victim in permutations(vms, 2):
+      try:
+        # exclusive
+        victim.unfreeze()
+        i, c = victim.stat(time)
+        exclusive = i / c
+        # shared
+        predator.unfreeze()
+        i, c = victim.stat(time)
+        shared = i / c
+        # tear down
+        predator.freeze()
+        victim.freeze()
+        # save results
+      except NotCountedError:
+        print("we missed a data point")
+        continue
+      key = predator.bname, victim.bname
+      result[key].append(shared / exclusive)
+      sleep(pause)
 
   for vm in vms:
     vm.unfreeze()
   return result
 
 
-def reverse(num:int=1, time:float=1.0, pause:float=0.1, vms=None):
+def reverse_shared(num:int=1, time:float=0.1, pause:float=0.1, vms=None):
   assert vms, "vms is a mandatory argument"
   result = defaultdict(list)
 
   def measure(vm, r):
     ins, cycles = vm.stat(time)
-    r[vm.bname] = ins/cycles
+    r[vm.bname] = ins / cycles
 
   for i in range(num):
     print("measure %s out of %s" % (i+1, num))
@@ -164,12 +172,21 @@ def reverse(num:int=1, time:float=1.0, pause:float=0.1, vms=None):
       try:
         for bench, pShared, pExcl in dictzip(shared, exklusiv):
           key = victim.bname, bench
-          value = pShared/pExcl
+          value = pShared / pExcl
           result[key].append(value)
       except KeyError:
         print("something was wrong, we lost a datapoint")
       sleep(pause)
   return result
+
+
+def reverse(num:int=1, time:float=0.1, pause:float=0.1, vms=None):
+  print("isolated")
+  isolated = reverse_isolated(num=num, time=time, pause=pause, vms=vms)
+  print("shared")
+  shared = reverse_shared(num=num, time=time, pause=pause, vms=vms)
+  return Struct(isolated=isolated, shared=shared)
+
 
 def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   pure = defaultdict(list)
