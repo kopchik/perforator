@@ -73,9 +73,12 @@ class Template(Template):
     return self.task.measurex(interval, num)
 
   def stat(self, time=1):
-    r = kvmstat(self.pid, ['instructions', 'cycles'], time)
-    ins = r['instructions']
-    cycles = r['cycles']
+    try:
+      r = kvmstat(self.pid, ['instructions', 'cycles'], time)
+      ins = r['instructions']
+      cycles = r['cycles']
+    except Exception as err:
+      raise NotCountedError(err)
     if ins == 0 or cycles == 0:
       raise NotCountedError
     return ins, cycles
