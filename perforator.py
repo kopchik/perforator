@@ -27,7 +27,7 @@ class Setup:
   def __init__(self, benchmarks):
     self.benchmarks = benchmarks
     self.pipes = []
-    if any(vm.start() for vm in vms):
+    if any([vm.start() for vm in vms]):
       print("some of vms were not started, giving it time to start")
       sleep(10)
 
@@ -41,6 +41,8 @@ class Setup:
       p = vm.Popen(cmd)
       vm.bname = bname
       self.pipes.append(p)
+    print("benches warm-up for 10 seconds")
+    sleep(10)
     return map
 
   def __exit__(self, *args):
@@ -140,6 +142,8 @@ def reverse_isolated(num, time, pause, vms=None):
         # save results
       except NotCountedError:
         print("we missed a data point")
+        predator.freeze()
+        victim.freeze()
         continue
       key = predator.bname, victim.bname
       result[key].append(shared / exclusive)
@@ -197,7 +201,8 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   for vm in vms:
     vm.freeze()
 
-  for vm in vms:
+  for i,vm in enumerate(vms):
+    print("step 1: {} out of {}".format(i+1, len(vms)))
     vm.unfreeze()
     for _ in range(num):
       try:
@@ -211,7 +216,8 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
     vm.unfreeze()
 
   # STEP 2: quasi-isolated performance
-  for vm in vms:
+  for i,vm in enumerate(vms):
+    print("step 2: {} out of {}".format(i+1, len(vms)))
     for _ in range(num):
       sleep(pause)
       vm.exclusive()
