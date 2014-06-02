@@ -17,4 +17,6 @@
 #time ./perforator.py -t 'func=distribution|num=1000|interval=0.05' -o auto
 #time ./perforator.py -t 'func=distribution|num=1000|interval=0.02' -o auto
 
-time ./perforator.py -t 'func=reverse_interference|num=1000|time=0.1|real_time=360' -o auto
+#time ./perforator.py -t 'func=reverse|num=100|time=0.1' -o auto
+#time ./perforator.py -t 'func=reverse|num=1000|time=0.2' -o auto
+#time ./perforator.py -t 'func=reverse|num=1000|time=0.3' -o auto
