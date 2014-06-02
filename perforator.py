@@ -3,6 +3,7 @@ from collections import OrderedDict, defaultdict
 from itertools import permutations
 from threading import Thread
 from statistics import mean
+from socket import gethostname
 from os.path import exists
 from time import sleep
 from math import ceil
@@ -32,7 +33,7 @@ class Setup:
 
   def __enter__(self):
     map = {}
-    wait_idleness(IDLENESS*2)
+    wait_idleness(IDLENESS*6)
     for bname, vm in zip(self.benchmarks, vms):
       #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
@@ -239,7 +240,7 @@ if __name__ == '__main__':
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
   with Setup(args.benches):
-    sleep(15)  # warm-up time
+    sleep(20)  # warm-up time
     func, params = invoke(args.test, globals(), vms=vms)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
@@ -250,7 +251,7 @@ if __name__ == '__main__':
       if args.output == 'auto':
         params.pop('vms')
         csv = ",".join('%s=%s' % (k,v) for k,v in sorted(params.items()))
-        fname = 'results/%s_%s.pickle' % (func.__name__, csv)
+        fname = 'results/%s/%s_%s.pickle' % (gethostname(), func.__name__, csv)
       else:
         fname = args.output
       print("pickling to", fname)
