@@ -15,12 +15,6 @@ for x in range(4):
   lxc = LXC(name=name, root="/btrfs/{}".format(name), tpl="/home/perftemplate/",
             addr=ip, gw="172.16.5.1", cpus=[x])
   lxcs += [lxc]
-#  lxc.stop()
-#  lxc.destroy()
-#  lxc.create()
-
-#p = lxc.Popen("burnCortexA9")
-#p.killall()
 
 def callmeth(meth, lxcs):
   for lxc in lxcs:
