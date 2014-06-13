@@ -6,7 +6,6 @@ from useful.mystruct import Struct
 from useful.log import Log
 
 from perf.numa import topology
-from perf.lxc import TPL, LXC, NotCountedError
 
 from resource import setrlimit, RLIMIT_NOFILE
 from ipaddress import IPv4Address
@@ -31,20 +30,21 @@ VMS = []
 # HOST-SPECIFIC CFGs #
 ######################
 
-if HOSTNAME == 'fx' or HOSTNAME == 'p1':
-  SIBLINGS = True,
-  RESULTS = "./results/fx/cc_auto/notp/"
+if HOSTNAME == 'limit':
+  from perf.qemu import Template, Bridged, Drive
+  SIBLINGS = True
+  RESULTS = "./results/limit/"
 
-  for i in topology.cpus:
+  #for i, cpu in enumerate(topology.cpus_no_ht):
+  for i, cpu in enumerate(topology.cpus):
     vm = Template(
-      name = str(i),
-      cpus = [i],
-      addr = ip_address("172.16.5.10")+i,
-      net  = [Bridged(ifname="virt%s"%i, model='e1000',
-             mac="52:54:91:5E:38:%02x"%i, br="intbr")],
-      drives = [Drive("/home/sources/perfvms/perf%s.qcow2"%i,
-                cache="unsafe")])
-    vm.kill()
+        name = "vm%s"%i,
+        auto = True,
+        cpus = [i],  # affinity
+        net  = [Bridged(ifname="template", model='e1000', mac="52:54:91:5E:38:0%s"%i, br="intbr")],
+        drives = [Drive("/home/virtuals/vm%s.qcow2"%i, master="/home/virtuals/research.qcow2", cache="unsafe")],
+        addr = "172.16.5.1%s"%i
+        )
     VMS.append(vm)
 
 
@@ -53,10 +53,10 @@ if HOSTNAME == 'fx' or HOSTNAME == 'p1':
 ##########
 
 elif HOSTNAME == 'u2':
-  SIBLINGS = False,
+  from perf.lxc import LXC
+  SIBLINGS = False
   RESULTS = "./results/u2/"
   LXC_PREFIX = "/btrfs/"
-  VMS = []
   for x in range(4):
     ip = str(IPv4Address("172.16.5.10")+x)
     name = "perf%s" % x
