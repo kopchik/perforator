@@ -11,11 +11,12 @@ import argparse
 import atexit
 import pickle
 
+from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
-from perf.config import basis, IDLENESS
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
-from qemu import vms, NotCountedError
+#from qemu import vms, NotCountedError
+from config import basis, VMS as vms, IDLENESS
 
 
 THRESH = 10 # min CPU usage in %
@@ -24,8 +25,9 @@ THRESH = 10 # min CPU usage in %
 class Setup:
   pipes = None
 
-  def __init__(self, benchmarks):
+  def __init__(self, vms, benchmarks):
     self.benchmarks = benchmarks
+    self.vms = vms
     self.pipes = []
     if any([vm.start() for vm in vms]):
       print("some of vms were not started, giving it time to start")
@@ -34,10 +36,9 @@ class Setup:
   def __enter__(self):
     map = {}
     wait_idleness(IDLENESS*6)
-    for bname, vm in zip(self.benchmarks, vms):
+    for bname, vm in zip(self.benchmarks, self.vms):
       #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
-      map[vm.pid] = bname
       p = vm.Popen(cmd)
       vm.bname = bname
       self.pipes.append(p)
@@ -118,6 +119,7 @@ def rawprofile(vms, time=1.0, freq=100, pause=0.1, num=10):
       #print("pause")
       sleep(pause)  # let system stabilze after defrost
   return r
+
 
 def reverse_isolated(num, time, pause, vms=None):
   result = defaultdict(list)
@@ -206,8 +208,9 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
     vm.unfreeze()
     for _ in range(num):
       try:
-        ins, cycles = vm.stat(interval)
-        pure[vm.bname].append(ins/cycles)
+        ipc = vm.ipcstat(interval)
+        pure[vm.bname].append(ipc)
+        print("saving pure to", vm.bname, ipc)
       except NotCountedError:
         pass
     vm.freeze()
@@ -222,9 +225,11 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
       sleep(pause)
       vm.exclusive()
       try:
-        ins, cycles = vm.stat(interval)
-        quasi[vm.bname].append(ins/cycles)
+        ipc = vm.ipcstat(interval)
+        quasi[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
       except NotCountedError:
+        print("missed data point")
         pass
       vm.shared()
 
@@ -245,7 +250,7 @@ if __name__ == '__main__':
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
-  with Setup(args.benches):
+  with Setup(vms, args.benches):
     sleep(20)  # warm-up time
     func, params = invoke(args.test, globals(), vms=vms)
     print("invoking", func.__name__, "with", params)
