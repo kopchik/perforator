@@ -2,6 +2,7 @@
 
 from perf.qemu import Template
 from perf.numa import topology
+from perf.perftool import NotCountedError  #TODO: import *stat
 from libvmc import Drive, Bridged, main, manager
 #from perflib import Task
 from subprocess import check_call
@@ -11,7 +12,6 @@ import shlex
 
 vms = []
 PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
-class NotCountedError(Exception): pass
 
 def kvmistat(pid, events, time, interval):
   CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
