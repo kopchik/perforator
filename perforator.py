@@ -231,6 +231,21 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   return Struct(pure=pure, quasi=quasi)
 
 
+def shared(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
+  result = defaultdict(list)
+
+  for _ in range(num):
+    print("step 1: {} out of {}".format(i+1, len(vms)))
+    for i,vm in enumerate(vms):
+      try:
+        ins, cycles = vm.stat(interval)
+        result[vm.bname].append(ins/cycles)
+      except NotCountedError:
+        pass
+
+  return result
+
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
