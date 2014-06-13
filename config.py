@@ -2,10 +2,8 @@
 
 from useful import __version__ as useful_version
 assert useful_version >= (1,5)
-from useful.mystruct import Struct
 from useful.log import Log
 
-from perf.numa import topology
 
 from resource import setrlimit, RLIMIT_NOFILE
 from ipaddress import IPv4Address
@@ -32,6 +30,7 @@ VMS = []
 
 if HOSTNAME == 'limit':
   from perf.qemu import Template, Bridged, Drive
+  from perf.numa import topology
   SIBLINGS = True
   RESULTS = "./results/limit/"
 
@@ -53,16 +52,20 @@ if HOSTNAME == 'limit':
 ##########
 
 elif HOSTNAME == 'u2':
-  from perf.lxc import LXC
   SIBLINGS = False
   RESULTS = "./results/u2/"
-  LXC_PREFIX = "/btrfs/"
-  for x in range(4):
-    ip = str(IPv4Address("172.16.5.10")+x)
-    name = "perf%s" % x
-    lxc = LXC(name=name, root="/btrfs/{}".format(name), tpl="/home/perftemplate/",
-              addr=ip, gw="172.16.5.1", cpus=[x])
-    VMS.append(lxc)
+  from perf.bare import Bare
+  for x in range(Bare):
+    bare = Bare()
+    VMS.append(bare)
+  # from perf.lxc import LXC
+  # LXC_PREFIX = "/btrfs/"
+  # for x in range(4):
+  #   ip = str(IPv4Address("172.16.5.10")+x)
+  #   name = "perf%s" % x
+  #   lxc = LXC(name=name, root="/btrfs/{}".format(name), tpl="/home/perftemplate/",
+  #             addr=ip, gw="172.16.5.1", cpus=[x])
+  #   VMS.append(lxc)
 
 
 elif HOSTNAME == 'limit':
@@ -105,4 +108,4 @@ def enable_debug():
   WARMUP_TIME = 0
   MEASURE_TIME = 0.5
   IDLENESS = 70
-enable_debug()
+#enable_debug()
