@@ -4,13 +4,13 @@ from perf.qemu import Template
 from perf.numa import topology
 from perf.perftool import NotCountedError  #TODO: import *stat
 from libvmc import Drive, Bridged, main, manager
-#from perflib import Task
 from subprocess import check_call
 from socket import socketpair
 from collections import defaultdict
 import shlex
 
-vms = []
+from config import VMS as vms
+
 PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
 
 def kvmistat(pid, events, time, interval):
@@ -52,50 +52,6 @@ def kvmstat(pid, events, time):
       raise NotCountedError
     r[ev] = int(rawcnt)
   return r
-
-
-class Template(Template):
-  task = None
-  bname = None  # benchmark name
-
-  def shared(self):
-    for vm in vms:
-      if vm == self: continue
-      vm.unfreeze()
-
-  def exclusive(self):
-    for vm in vms:
-      if vm == self: continue
-      vm.freeze()
-
-  def measure(self, interval=1, num=1):
-    if not self.task:
-      self.task = Task(self.pid)
-    return self.task.measurex(interval, num)
-
-  def ipcstat(self, time=1):
-    try:
-      r = kvmstat(self.pid, ['instructions', 'cycles'], time)
-      ins = r['instructions']
-      cycles = r['cycles']
-    except Exception as err:
-      raise NotCountedError(err)
-    if ins == 0 or cycles == 0:
-      raise NotCountedError
-    return ins, cycles
-
-
-#for i, cpu in enumerate(topology.cpus_no_ht):
-for i, cpu in enumerate(topology.cpus):
-  vm = Template(
-      name = "vm%s"%i,
-      auto = True,
-      cpus = [i],  # affinity
-      net  = [Bridged(ifname="template", model='e1000', mac="52:54:91:5E:38:0%s"%i, br="intbr")],
-      drives = [Drive("/home/virtuals/vm%s.qcow2"%i, master="/home/virtuals/research.qcow2", cache="unsafe")],
-      addr = "172.16.5.1%s"%i
-      )
-  vms.append(vm)
 
 
 if __name__ == '__main__':
