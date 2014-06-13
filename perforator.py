@@ -15,8 +15,7 @@ from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
-#from qemu import vms, NotCountedError
-from config import basis, VMS as vms, IDLENESS
+from config import basis, VMS, IDLENESS
 
 
 THRESH = 10 # min CPU usage in %
@@ -47,7 +46,7 @@ class Setup:
     return map
 
   def __exit__(self, *args):
-    for vm in vms:
+    for vm in self.vms:
       vm.unfreeze()
     for p in self.pipes:
       p.killall()
@@ -239,12 +238,13 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
 def shared(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   result = defaultdict(list)
 
-  for _ in range(num):
-    print("step 1: {} out of {}".format(i+1, len(vms)))
-    for i,vm in enumerate(vms):
+  for i in range(num):
+    if i%10 == 0:
+      print("step 1: {} out of {}".format(i+1, num))
+    for vm in vms:
       try:
-        ins, cycles = vm.stat(interval)
-        result[vm.bname].append(ins/cycles)
+        ipc = vm.ipcstat(interval)
+        result[vm.bname].append(ipc)
       except NotCountedError:
         pass
 
@@ -265,9 +265,9 @@ if __name__ == '__main__':
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
-  with Setup(vms, args.benches):
+  with Setup(VMS, args.benches):
     sleep(20)  # warm-up time
-    func, params = invoke(args.test, globals(), vms=vms)
+    func, params = invoke(args.test, globals(), vms=VMS)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
     if args.print:
