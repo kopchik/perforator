@@ -57,6 +57,7 @@ def kvmstat(pid, events, time):
 class Template(Template):
   task = None
   bname = None  # benchmark name
+
   def shared(self):
     for vm in vms:
       if vm == self: continue
