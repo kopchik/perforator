@@ -6,15 +6,8 @@ from sys import exit
 from cmd import Cmd
 import argparse
 
-LXC_PREFIX = "/btrfs/"
-lxcs = []
-vms = []
-for x in range(4):
-  ip = str(IPv4Address("172.16.5.10")+x)
-  name = "perf%s" % x
-  lxc = LXC(name=name, root="/btrfs/{}".format(name), tpl="/home/perftemplate/",
-            addr=ip, gw="172.16.5.1", cpus=[x])
-  lxcs += [lxc]
+from config import VMS as lxcs
+
 
 def callmeth(meth, lxcs):
   for lxc in lxcs:
