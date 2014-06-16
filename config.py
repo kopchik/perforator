@@ -55,9 +55,10 @@ elif HOSTNAME == 'u2':
   SIBLINGS = False
   RESULTS = "./results/u2/"
   from perf.bare import Bare
-  for x in range(Bare):
-    bare = Bare()
+  for x in range(4):
+    bare = Bare([x])
     VMS.append(bare)
+
   # from perf.lxc import LXC
   # LXC_PREFIX = "/btrfs/"
   # for x in range(4):
