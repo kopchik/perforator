@@ -219,7 +219,7 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
 
   # STEP 2: quasi-isolated performance
   for i,vm in enumerate(vms):
-    print("step 2: {} out of {}".format(i+1, len(vms)))
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
     for _ in range(num):
       sleep(pause)
       vm.exclusive()
@@ -228,7 +228,7 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
         quasi[vm.bname].append(ipc)
         print("saving quasi to", vm.bname, ipc)
       except NotCountedError:
-        print("missed data point")
+        print("missed data point for", vm.bname)
         pass
       vm.shared()
 
