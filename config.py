@@ -51,7 +51,7 @@ if HOSTNAME == 'limit':
 # EXYNOS #
 ##########
 
-elif HOSTNAME == 'u2':
+elif HOSTNAME in ['u2', 'perf0']:
   SIBLINGS = False
   RESULTS = "./results/u2/"
   from perf.bare import Bare
