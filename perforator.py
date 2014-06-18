@@ -50,6 +50,8 @@ class Setup:
     for vm in self.vms:
       vm.unfreeze()
     for p in self.pipes:
+      if p.returncode is not None:
+        print("ACHTUNG!!!!!!!!\n\n!")
       p.killall()
 
 
