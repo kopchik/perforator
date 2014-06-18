@@ -4,6 +4,7 @@ from itertools import permutations
 from threading import Thread
 from statistics import mean
 from socket import gethostname
+from subprocess import DEVNULL
 from os.path import exists
 from time import sleep
 from math import ceil
@@ -38,7 +39,7 @@ class Setup:
     for bname, vm in zip(self.benchmarks, self.vms):
       #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
-      p = vm.Popen(cmd)
+      p = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
       vm.bname = bname
       self.pipes.append(p)
     print("benches warm-up for 10 seconds")
