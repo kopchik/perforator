@@ -80,16 +80,17 @@ else:
 # BENCHMARKS #
 ##############
 
+BENCHES = "/home/sources/perftest/benches/"
 basis = dict(
   # INIT DB: sudo -u postgres pgbench -i
   pgbench = "sudo -u postgres pgbench -c 20 -s 10 -T 100000",
   static  = "siege -c 100 -t 666h http://localhost/big_static_file",  # TODO: too CPU consuming,
   wordpress = "siege -c 100 -t 666h http://localhost/",
   # matrix = "/home/sources/perftest/benches/matrix.py -s 1024 -r 1000",
-  matrix = "/home/sources/perftest/benches/matrix 2048",
-  sdag   = "bencher.py -s 100000 -- /home/sources/test_SDAG/test_sdag -t 5 -q 1000 /home/sources/test_SDAG/dataset.dat",
-  sdagp  = "bencher.py -s 100000 -- /home/sources/test_SDAG/test_sdag+ -t 5 -q 1000 /home/sources/test_SDAG/dataset.dat",
-  blosc  = "/home/sources/perftest/benches/pyblosc.py -r 10000000",
+  matrix = BENCHES + "matrix 2048",
+  sdag   = BENCHES + "test_SDAG/test_sdag -t 5 -q 1000 /home/sources/perftest/benches/test_SDAG/dataset.dat",
+  sdagp  = BENCHES + "test_SDAG/test_sdag+ -t 5 -q 1000 /home/sources/perftest/benches/test_SDAG/dataset.dat",
+  blosc  = BENCHES + "pyblosc.py -r 10000000",
   ffmpeg = "bencher.py -s 100000 -- ffmpeg -i /home/sources/avatar_trailer.m2ts \
             -threads 1 -t 10 -y -strict -2 -loglevel panic \
             -acodec aac -aq 100 \
