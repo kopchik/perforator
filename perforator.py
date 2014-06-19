@@ -4,6 +4,7 @@ from itertools import permutations
 from threading import Thread
 from statistics import mean
 from socket import gethostname
+from subprocess import DEVNULL
 from os.path import exists
 from time import sleep
 from math import ceil
@@ -38,7 +39,7 @@ class Setup:
     for bname, vm in zip(self.benchmarks, self.vms):
       #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
-      p = vm.Popen(cmd)
+      p = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
       vm.bname = bname
       self.pipes.append(p)
     print("benches warm-up for 10 seconds")
@@ -49,6 +50,8 @@ class Setup:
     for vm in self.vms:
       vm.unfreeze()
     for p in self.pipes:
+      if p.returncode is not None:
+        print("ACHTUNG!!!!!!!!\n\n!")
       p.killall()
 
 
@@ -219,7 +222,7 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
 
   # STEP 2: quasi-isolated performance
   for i,vm in enumerate(vms):
-    print("step 2: {} out of {}".format(i+1, len(vms)))
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
     for _ in range(num):
       sleep(pause)
       vm.exclusive()
@@ -228,7 +231,7 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
         quasi[vm.bname].append(ipc)
         print("saving quasi to", vm.bname, ipc)
       except NotCountedError:
-        print("missed data point")
+        print("missed data point for", vm.bname)
         pass
       vm.shared()
 
