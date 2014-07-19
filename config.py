@@ -2,10 +2,8 @@
 
 from useful import __version__ as useful_version
 assert useful_version >= (1,5)
-from useful.mystruct import Struct
 from useful.log import Log
 
-from perf.numa import topology
 
 from resource import setrlimit, RLIMIT_NOFILE
 from ipaddress import IPv4Address
@@ -32,6 +30,7 @@ VMS = []
 
 if HOSTNAME == 'limit':
   from perf.qemu import Template, Bridged, Drive
+  from perf.numa import topology
   SIBLINGS = True
   RESULTS = "./results/limit/"
 
@@ -52,17 +51,22 @@ if HOSTNAME == 'limit':
 # EXYNOS #
 ##########
 
-elif HOSTNAME == 'u2':
-  from perf.lxc import LXC
+elif HOSTNAME in ['u2', 'perf0']:
   SIBLINGS = False
   RESULTS = "./results/u2/"
-  LXC_PREFIX = "/btrfs/"
+  from perf.bare import Bare
   for x in range(4):
-    ip = str(IPv4Address("172.16.5.10")+x)
-    name = "perf%s" % x
-    lxc = LXC(name=name, root="/btrfs/{}".format(name), tpl="/home/perftemplate/",
-              addr=ip, gw="172.16.5.1", cpus=[x])
-    VMS.append(lxc)
+    bare = Bare([x])
+    VMS.append(bare)
+
+  # from perf.lxc import LXC
+  # LXC_PREFIX = "/btrfs/"
+  # for x in range(4):
+  #   ip = str(IPv4Address("172.16.5.10")+x)
+  #   name = "perf%s" % x
+  #   lxc = LXC(name=name, root="/btrfs/{}".format(name), tpl="/home/perftemplate/",
+  #             addr=ip, gw="172.16.5.1", cpus=[x])
+  #   VMS.append(lxc)
 
 
 elif HOSTNAME == 'limit':
@@ -76,16 +80,17 @@ else:
 # BENCHMARKS #
 ##############
 
+BENCHES = "/home/sources/perftest/benches/"
 basis = dict(
   # INIT DB: sudo -u postgres pgbench -i
   pgbench = "sudo -u postgres pgbench -c 20 -s 10 -T 100000",
   static  = "siege -c 100 -t 666h http://localhost/big_static_file",  # TODO: too CPU consuming,
   wordpress = "siege -c 100 -t 666h http://localhost/",
   # matrix = "/home/sources/perftest/benches/matrix.py -s 1024 -r 1000",
-  matrix = "bencher.py -s 100000 -- /home/sources/perftest/benches/matrix 2048",
-  sdag   = "bencher.py -s 100000 -- /home/sources/test_SDAG/test_sdag -t 5 -q 1000 /home/sources/test_SDAG/dataset.dat",
-  sdagp  = "bencher.py -s 100000 -- /home/sources/test_SDAG/test_sdag+ -t 5 -q 1000 /home/sources/test_SDAG/dataset.dat",
-  blosc  = "/home/sources/perftest/benches/pyblosc.py -r 10000000",
+  matrix = BENCHES + "matrix 2048",
+  sdag   = BENCHES + "test_SDAG/test_sdag -t 5 -q 1000 /home/sources/perftest/benches/test_SDAG/dataset.dat",
+  sdagp  = BENCHES + "test_SDAG/test_sdag+ -t 5 -q 1000 /home/sources/perftest/benches/test_SDAG/dataset.dat",
+  blosc  = BENCHES + "pyblosc.py -r 10000000",
   ffmpeg = "bencher.py -s 100000 -- ffmpeg -i /home/sources/avatar_trailer.m2ts \
             -threads 1 -t 10 -y -strict -2 -loglevel panic \
             -acodec aac -aq 100 \
@@ -105,4 +110,4 @@ def enable_debug():
   WARMUP_TIME = 0
   MEASURE_TIME = 0.5
   IDLENESS = 70
-enable_debug()
+#enable_debug()
