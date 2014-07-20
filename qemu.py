@@ -38,22 +38,6 @@ def kvmistat(pid, events, time, interval):
   return r
 
 
-def kvmstat(pid, events, time):
-  CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -p {pid} sleep {time}"
-  read, write = socketpair()
-  cmd = CMD.format(perf=PERF, pid=pid, events=",".join(events), \
-                   fd=write.fileno(), time=time)
-  check_call(shlex.split(cmd), pass_fds=[write.fileno()])  # TODO: buf overflow??
-  result = read.recv(100000).decode()
-  r = {}
-  for s in result.splitlines():
-    rawcnt,_,ev = s.split(',')
-    if rawcnt == '<not counted>':
-      raise NotCountedError
-    r[ev] = int(rawcnt)
-  return r
-
-
 if __name__ == '__main__':
   manager.autostart_delay = 0
   main()
