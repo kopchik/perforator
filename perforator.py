@@ -42,8 +42,6 @@ class Setup:
       p = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
       vm.bname = bname
       self.pipes.append(p)
-    print("benches warm-up for 10 seconds")
-    sleep(10)
     return map
 
   def __exit__(self, *args):
@@ -269,7 +267,9 @@ if __name__ == '__main__':
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
   with Setup(VMS, args.benches):
-    sleep(20)  # warm-up time
+    if not args.debug:
+      print("benches warm-up for 10 seconds")
+      sleep(10)
     func, params = invoke(args.test, globals(), vms=VMS)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
