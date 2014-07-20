@@ -85,42 +85,6 @@ def threadulator(f, params):
   [t.join() for t in threads]
 
 
-def unpack(tuples):
-  print(tuples)
-  r1, r2 = [], []
-  for (v1,v2) in tuples:
-    r1.append(v1)
-    r2.append(v2)
-  return r1,r2
-
-
-def rawprofile(vms, time=1.0, freq=100, pause=0.1, num=10):
-  r = defaultdict(list)
-  interval = int(1/freq*1000)
-  assert interval >= 1, "too high freqency, should be > 1000Hz (>100Hz recommended)"
-  assert len(vms) > 1, "at least two tasks should be given"
-  for _ in range(num):
-    for vm in vms:
-      # phase 1: measure with other task in system
-      #print("shared")
-      shared, _ = vm.stat(time, interval)
-
-      sleep(pause)  # let system stabilze after defrost
-      # phase 2: exclusive resource usage
-      #print("exclusive")
-      vm.exclusive()
-      exclusive, _ = vm.stat(time, interval)
-      vm.shared()
-
-      # calculate results
-      #result = mean(shared[skip:])/mean(exclusive[skip:])
-      r[vm.name].append((shared,exclusive))
-
-      #print("pause")
-      sleep(pause)  # let system stabilze after defrost
-  return r
-
-
 def reverse_isolated(num, time, pause, vms=None):
   result = defaultdict(list)
   for vm in vms:
