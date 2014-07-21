@@ -216,6 +216,52 @@ def shared(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   return result
 
 
+def ragged(vms=None):
+  from functools import partial
+  from qemu import kvmistat
+  f = partial(kvmistat, events=['cycles'], time=10.0, interval=1)
+  args = [(vm,) for vm in vms]
+  threadulator(f, args)
+
+
+def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
+  standard = defaultdict(list)
+  withskip = defaultdict(list)
+  subinterval = 1000 // rate
+
+  # STEP 1: normal freezing approach
+  for i,vm in enumerate(vms):
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      try:
+        ipc = vm.ipcstat(interval)
+        standard[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+
+  # STEP 2: approach with sub-sampling and skip
+  from qemu import ipcistat
+  for i,vm in enumerate(vms):
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      try:
+        ipc = ipcistat(vm, interval, subinterval, skip)
+        withskip[vm.bname].append(ipc)
+        print("saving sub-sampled to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+
+  return Struct(standard=standard, withskip=withskip)
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
