@@ -2,41 +2,62 @@
 
 from perf.qemu import Template
 from perf.numa import topology
-from perf.perftool import NotCountedError  #TODO: import *stat
+from perf.perftool import NotCountedError
 from libvmc import Drive, Bridged, main, manager
 from subprocess import check_call
 from socket import socketpair
+from threading import current_thread
 from collections import defaultdict
+from statistics import mean
 import shlex
 
-from config import VMS as vms
+from config import VMS as vms  #do not remove, this triggers population of config
+
 
 PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
 
-def kvmistat(pid, events, time, interval):
-  CMD = "{perf} kvm stat -e {events} --log-fd {fd} -x, -I {interval} -p {pid} sleep {time}"
-  read, write = socketpair()
-  cmd = CMD.format(perf=PERF, pid=pid, events=",".join(events), \
-                   fd=write.fileno(), interval=interval, time=time)
-  check_call(shlex.split(cmd), pass_fds=[write.fileno()])  # TODO: buf overflow??
-  result = read.recv(100000).decode()
+
+def ipcistat(vm, time, interval, skip):
+  nc = 0  # num of not counted events
+  events = events=['instructions', 'cycles']
+  CMD = "{perf} kvm stat -e {events} -o {out} -x, -I {interval} -p {pid} sleep {time}"
+  out = "/tmp/perf_%s_%s" % (vm.bname, current_thread().ident)
+  cmd = CMD.format(perf=PERF, pid=vm.pid, events=",".join(events), \
+                   out=out, interval=interval, time=time)
+  try:
+    check_call(shlex.split(cmd))
+  except:
+    raise NotCountedError
+  with open(out) as fd:
+    result = fd.read()
+    os.unlink(out)
+
   r = defaultdict(list)
-  nc = 0
   for s in result.splitlines():
     try:
       _,rawcnt,_,ev = s.split(',')
-    except Exception as err:
-      print(s,err)
+    except ValueError as err:
       continue
     if rawcnt == '<not counted>':
+      print('missing subsample')
       nc += 1
-      continue
+      rawcnt = 0
     r[ev].append(int(rawcnt))
+  instructions = r['instructions']
+  cycles = r['cycles']
+  assert len(instructions) == len(cycles)
+  for pos, (i,c) in enumerate(zip(instructions, cycles)):
+    if i == 0 or c == 0:
+      instructions[pos] = cycles[pos] = 0
+
+  nc = 0
   ratio = nc/len(result.splitlines())
   if ratio > 0.3:
     print("nc", nc, ratio)
-  return r
-
+  try:
+    return mean(instructions[skip:]) / mean(cycles[skip:])
+  except ZeroDivisionError:
+    raise NotCountedError
 
 if __name__ == '__main__':
   manager.autostart_delay = 0
