@@ -14,12 +14,10 @@ import pickle
 
 from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
+from useful.run import run
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS
-
-
-THRESH = 10 # min CPU usage in %
 
 
 class Setup:
@@ -53,28 +51,6 @@ class Setup:
       if p.returncode is not None:
         print("ACHTUNG!!!!!!!!\n\n!")
       p.killall()
-
-
-def get_heavy_tasks(thr=THRESH, t=0.3):
-  from psutil import process_iter
-  [p.cpu_percent() for p in process_iter()]
-  sleep(t)
-  ## short version
-  # return [p.pid for p in process_iter() if p.cpu_percent()>10]
-  r = []
-  for p in process_iter():
-    cpu = p.cpu_percent()
-    if cpu > 10:
-      print("{pid:<7} {name:<12} {cpu}".format(pid=p.pid, name=p.name(), cpu=cpu))
-      r.append(p.pid)
-  return r
-
-
-def generate_load():
-  from subprocess import Popen
-  for x in range(2):
-    p = Popen("burnP6")
-    atexit.register(p.kill)
 
 
 def threadulator(f, params):
@@ -238,7 +214,7 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   return Struct(pure=pure, quasi=quasi)
 
 
-def shared(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
+def shared(num:int=1, interval:float=0.1, pause:float=0.1, vms=None):
   result = defaultdict(list)
 
   for i in range(num):
