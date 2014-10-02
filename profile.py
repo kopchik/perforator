@@ -7,6 +7,7 @@ import os
 from os import kill
 from signal import SIGSTOP, SIGCONT, SIGKILL
 from collections import defaultdict
+from statistics import mean
 
 
 THRESH = 10 # min CPU usage in %
@@ -42,7 +43,9 @@ def get_cur_cpu(pid):
 
 
 def pin_task(pid, cpu):
-  cmd = "schedtool -a %s %s" % (hex(cpu), pid)
+  print("pinning %s to %s" %(pid, cpu))
+  mask = 1<<cpu
+  cmd = "schedtool -a %s %s" % (hex(mask), pid)
   run(cmd, sudo='root')
 
 
@@ -82,6 +85,9 @@ class Task:
         continue
       t.kill(SIGSTOP)
 
+  def __repr__(self):
+    cls = self.__class__.__name__
+    return "%s(%s)" %(cls, self.pid)
 
 def get_sys_ipc(t=1.0):
   r = ipc(time=1)
@@ -94,18 +100,28 @@ def generate_load():
     p = Popen("burnP6")
     atexit.register(p.kill)
 
-
-#TODO: change generate_load to false
-def sys_profile(repeat=1):
-  profiles = defaultdict(list)
+def get_pinned_tasks():
   pids = get_heavy_tasks()
   print("pids for consideration:", pids)
   tasks = [Task(pid) for pid in pids]
+  for task in tasks:
+    task.pin()
+  return tasks
+
+#TODO: change generate_load to false
+def sys_optimize_deadsimple(tasks, repeat=1):
+  profiles = defaultdict(list)
   for i in range(repeat):
     for task in tasks:
       ipc = task_profile(task)
-      profiles[task].append(ipc)
-  return profiles
+      if ipc:
+        profiles[task].append(ipc)
+
+  profile = {}
+  for k,v in profiles.items():
+    profile[k] = mean(v)
+
+  return profile
 
 
 def task_profile(task, t=0.1):
@@ -120,9 +136,16 @@ def task_profile(task, t=0.1):
 
 if __name__ == '__main__':
   generate_load()
-  sleep(0.3)
+  tasks = get_pinned_tasks()
+  sleep(1)  # warm-up
+
+
+  # initial performance
   before_sys_ipc =  get_sys_ipc()
-  print(sys_profile())
+
+  print(sys_optimize_deadsimple(tasks))
+
+  # after tasks were optimized
   after_sys_ipc =  get_sys_ipc()
   improvement = (after_sys_ipc - before_sys_ipc) / before_sys_ipc
   print("improvement: {:.1%}".format(improvement))
