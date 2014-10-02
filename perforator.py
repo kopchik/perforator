@@ -40,8 +40,6 @@ class Setup:
       p = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
       vm.bname = bname
       self.pipes.append(p)
-    print("benches warm-up for 10 seconds")
-    sleep(10)
     return map
 
   def __exit__(self, *args):
@@ -61,42 +59,6 @@ def threadulator(f, params):
     threads.append(t)
   [t.start() for t in threads]
   [t.join() for t in threads]
-
-
-def unpack(tuples):
-  print(tuples)
-  r1, r2 = [], []
-  for (v1,v2) in tuples:
-    r1.append(v1)
-    r2.append(v2)
-  return r1,r2
-
-
-def rawprofile(vms, time=1.0, freq=100, pause=0.1, num=10):
-  r = defaultdict(list)
-  interval = int(1/freq*1000)
-  assert interval >= 1, "too high freqency, should be > 1000Hz (>100Hz recommended)"
-  assert len(vms) > 1, "at least two tasks should be given"
-  for _ in range(num):
-    for vm in vms:
-      # phase 1: measure with other task in system
-      #print("shared")
-      shared, _ = vm.stat(time, interval)
-
-      sleep(pause)  # let system stabilze after defrost
-      # phase 2: exclusive resource usage
-      #print("exclusive")
-      vm.exclusive()
-      exclusive, _ = vm.stat(time, interval)
-      vm.shared()
-
-      # calculate results
-      #result = mean(shared[skip:])/mean(exclusive[skip:])
-      r[vm.name].append((shared,exclusive))
-
-      #print("pause")
-      sleep(pause)  # let system stabilze after defrost
-  return r
 
 
 def reverse_isolated(num, time, pause, vms=None):
@@ -230,6 +192,52 @@ def shared(num:int=1, interval:float=0.1, pause:float=0.1, vms=None):
   return result
 
 
+def ragged(vms=None):
+  from functools import partial
+  from qemu import kvmistat
+  f = partial(kvmistat, events=['cycles'], time=10.0, interval=1)
+  args = [(vm,) for vm in vms]
+  threadulator(f, args)
+
+
+def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
+  standard = defaultdict(list)
+  withskip = defaultdict(list)
+  subinterval = 1000 // rate
+
+  # STEP 1: normal freezing approach
+  for i,vm in enumerate(vms):
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      try:
+        ipc = vm.ipcstat(interval)
+        standard[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+
+  # STEP 2: approach with sub-sampling and skip
+  from qemu import ipcistat
+  for i,vm in enumerate(vms):
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      try:
+        ipc = ipcistat(vm, interval, subinterval, skip)
+        withskip[vm.bname].append(ipc)
+        print("saving sub-sampled to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+
+  return Struct(standard=standard, withskip=withskip)
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
@@ -245,7 +253,9 @@ if __name__ == '__main__':
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
   with Setup(VMS, args.benches):
-    sleep(20)  # warm-up time
+    if not args.debug:
+      print("benches warm-up for 10 seconds")
+      sleep(10)
     func, params = invoke(args.test, globals(), vms=VMS)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
