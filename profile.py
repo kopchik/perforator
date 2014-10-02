@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 from useful.run import run
-from perf.perftool import stat
+from perf.perftool import ipc
 import atexit
 from time import sleep
 import os
 from os import kill
 from signal import SIGSTOP, SIGCONT, SIGKILL
+from collections import defaultdict
+
 
 THRESH = 10 # min CPU usage in %
+
 
 def get_heavy_tasks(thr=THRESH, t=0.3):
   from psutil import process_iter
@@ -16,10 +19,11 @@ def get_heavy_tasks(thr=THRESH, t=0.3):
   ## short version
   # return [p.pid for p in process_iter() if p.cpu_percent()>10]
   r = []
+  print("topmost resource hogs:")
   for p in process_iter():
     cpu = p.cpu_percent()
     if cpu > 10:
-      print("{pid:<7} {name:<12} {cpu}".format(pid=p.pid, name=p.name(), cpu=cpu))
+      print("{pid:<7} {name:<12} {cpu}% CPU".format(pid=p.pid, name=p.name(), cpu=cpu))
       r.append(p.pid)
   return r
 
@@ -30,10 +34,12 @@ def get_affinity(pid):
   rawmask = raw.rsplit(b'AFFINITY')[1]
   return int(rawmask, base=16)
 
+
 def get_cur_cpu(pid):
   cmd = "ps h -p %s -o psr" % pid
   rawcpu = run(cmd)
   return int(rawcpu)
+
 
 def pin_task(pid, cpu):
   cmd = "schedtool -a %s %s" % (hex(cpu), pid)
@@ -62,14 +68,8 @@ class Task:
     pin_task(self.orig_affinity)
 
   def ipc(self, time=0.1):
-    r = stat(pid=self.pid,
-             events=['instructions', 'cycles'],
-             time=time)
-    instructions = r['instructions']
-    cycles = r['cycles']
-    if instructions == 0 or cycles == 0:
-      return None
-    return instructions / cycles
+    return ipc(pid=self.pid, time=time)
+
   def shared(self):
     for t in self.tasks:
       if t == self:
@@ -83,6 +83,11 @@ class Task:
       t.kill(SIGSTOP)
 
 
+def get_sys_ipc(t=1.0):
+  r = ipc(time=1)
+  print("system IPC: {:.3}".format(r))
+  return r
+
 def generate_load():
   from subprocess import Popen
   for x in range(2):
@@ -91,11 +96,33 @@ def generate_load():
 
 
 #TODO: change generate_load to false
-def task_profile(gen_load:int=0):
-  if gen_load:
-    generate_load()
+def sys_profile(repeat=1):
+  profiles = defaultdict(list)
   pids = get_heavy_tasks()
+  print("pids for consideration:", pids)
   tasks = [Task(pid) for pid in pids]
+  for i in range(repeat):
+    for task in tasks:
+      ipc = task_profile(task)
+      profiles[task].append(ipc)
+  return profiles
+
+
+def task_profile(task, t=0.1):
+  shared_ipc = task.ipc(t)
+  task.exclusive()
+  exclusive_ipc = task.ipc(t)
+  task.shared()
+  if not shared_ipc or not exclusive_ipc:
+    return None
+  return shared_ipc / exclusive_ipc
+
 
 if __name__ == '__main__':
-  print(task_profile())
+  generate_load()
+  sleep(0.3)
+  before_sys_ipc =  get_sys_ipc()
+  print(sys_profile())
+  after_sys_ipc =  get_sys_ipc()
+  improvement = (after_sys_ipc - before_sys_ipc) / before_sys_ipc
+  print("improvement: {:.1%}".format(improvement))
