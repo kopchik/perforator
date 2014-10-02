@@ -8,12 +8,11 @@ from os import kill
 from signal import SIGSTOP, SIGCONT, SIGKILL
 from collections import defaultdict
 from statistics import mean
+from perf.numa import topology
+import argparse
 
 
-THRESH = 10 # min CPU usage in %
-
-
-def get_heavy_tasks(thr=THRESH, t=0.3):
+def get_heavy_tasks(thr, t=0.3):
   from psutil import process_iter
   [p.cpu_percent() for p in process_iter()]
   sleep(t)
@@ -58,11 +57,15 @@ class Task:
     self.affinity = self.orig_affinity
     self.tasks.append(self)
 
-  def pin(self):
-    cur_cpu = get_cur_cpu(self.pid)
-    pin_task(self.pid, cur_cpu)
-    self.affinity = cur_cpu
-    return cur_cpu
+  def pin(self, cpu=None):
+    """ Pin task to the specific cpu.
+        Pins to current cpu if none provided.
+    """
+    if not cpu:
+      cpu = get_cur_cpu(self.pid)
+    pin_task(self.pid, cpu)
+    self.affinity = cpu
+    return cpu
 
   def kill(self, sig=SIGKILL):
     kill(self.pid, sig)
@@ -89,61 +92,78 @@ class Task:
     cls = self.__class__.__name__
     return "%s(%s)" %(cls, self.pid)
 
+
 def get_sys_ipc(t=1.0):
   r = ipc(time=1)
   print("system IPC: {:.3}".format(r))
   return r
 
-def generate_load():
+
+def generate_load(num):
   from subprocess import Popen
-  for x in range(2):
+  for x in range(num):
     p = Popen("burnP6")
     atexit.register(p.kill)
 
-def get_pinned_tasks():
-  pids = get_heavy_tasks()
+
+def get_pinned_tasks(threshold):
+  pids = get_heavy_tasks(threshold)
   print("pids for consideration:", pids)
   tasks = [Task(pid) for pid in pids]
   for task in tasks:
     task.pin()
   return tasks
 
-#TODO: change generate_load to false
-def sys_optimize_deadsimple(tasks, repeat=1):
-  profiles = defaultdict(list)
-  for i in range(repeat):
-    for task in tasks:
-      ipc = task_profile(task)
-      if ipc:
-        profiles[task].append(ipc)
 
-  profile = {}
-  for k,v in profiles.items():
-    profile[k] = mean(v)
-
-  return profile
-
-
-def task_profile(task, t=0.1):
+def task_profile(task, shared, ideal, ratio, t=0.1):
   shared_ipc = task.ipc(t)
   task.exclusive()
-  exclusive_ipc = task.ipc(t)
+  ideal_ipc = task.ipc(t)
   task.shared()
-  if not shared_ipc or not exclusive_ipc:
-    return None
-  return shared_ipc / exclusive_ipc
+
+  shared[task].append(shared_ipc)
+  ideal[task].append(ideal_ipc)
+  ratio[task].append(shared_ipc / ideal_ipc)
+
+
+def reduce_and_sort_by_value(d):
+  for k,v in d.items():
+    d[k] = mean(v)
+  return sorted(d.items(), key=lambda x: -x[1])
+
+
+def sys_optimize_dead_simple(tasks, repeat=1):
+  shared = defaultdict(list)
+  ideal  = defaultdict(list)
+  ratio  = defaultdict(list)
+
+  for i in range(repeat):
+    for task in tasks:
+      task_profile(task, shared, ideal, ratio)
+
+  by_impact = reduce_and_sort_by_value(ratio)
+  for (t,_), cpu in zip(by_impact, topology.no_ht):
+    t.pin(cpu)
+  return ratio
 
 
 if __name__ == '__main__':
-  generate_load()
-  tasks = get_pinned_tasks()
-  sleep(1)  # warm-up
+  parser = argparse.ArgumentParser(description='Run experiments')
+  # parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
+  # parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
+  parser.add_argument('-t', '--threshold', type=int, default=10,
+                      help="consider only tasks consuming more CPU than this")
+  args = parser.parse_args()
+  print("config:", args)
 
+  generate_load(4)
+  tasks = get_pinned_tasks(args.threshold)
+  sleep(2)  # warm-up
 
   # initial performance
   before_sys_ipc =  get_sys_ipc()
 
-  print(sys_optimize_deadsimple(tasks))
+  print(sys_optimize_dead_simple(tasks))
 
   # after tasks were optimized
   after_sys_ipc =  get_sys_ipc()
