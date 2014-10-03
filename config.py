@@ -31,6 +31,7 @@ VMS = []
 if HOSTNAME == 'limit':
   from perf.qemu import Template, Bridged, Drive
   from perf.numa import topology
+  #IDLENESS = 40
   SIBLINGS = True
   RESULTS = "./results/limit/"
 
@@ -45,6 +46,10 @@ if HOSTNAME == 'limit':
         addr = "172.16.5.1%s"%i
         )
     VMS.append(vm)
+
+
+elif HOSTNAME == 'ux32vd':
+  pass
 
 
 ##########
@@ -69,9 +74,6 @@ elif HOSTNAME in ['u2', 'perf0']:
   #   VMS.append(lxc)
 
 
-elif HOSTNAME == 'limit':
-  RESULTS = "./results/limit/"
-  IDLENESS = 40
 else:
   raise Exception("Unknown host. Please configure it first in config.py.")
 
