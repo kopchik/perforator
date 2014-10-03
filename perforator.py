@@ -216,12 +216,40 @@ def shared(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   return result
 
 
-def ragged(vms=None):
+def ragged(time:int=10, interval:int=1, vms=None):
   from functools import partial
-  from qemu import kvmistat
-  f = partial(kvmistat, events=['cycles'], time=10.0, interval=1)
+  from qemu import ipcistat
+  f = partial(ipcistat, events=['cycles','instructions', 'cache-misses', 'minor-faults'], time=10.0, interval=1)
   args = [(vm,) for vm in vms]
   threadulator(f, args)
+
+
+def freezing(num, interval, pause, delay:float=0.0, vms=None):
+  result = defaultdict(list)
+  for i,vm in enumerate(vms):
+    #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      if delay: sleep(delay)
+      try:
+        ipc = vm.ipcstat(interval)
+        result[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+  return result
+
+
+def delay(num:int=1, interval:float=0.1, pause:float=0.1, delay:float=0.01, vms=None):
+  without   = freezing(num, interval, pause, 0.0, vms)
+  withdelay = freezing(num, interval, pause, delay, vms)
+  print(without)
+  print(withdelay)
+  print(Struct(without=without, withdelay=withdelay))
+  return Struct(without=without, withdelay=withdelay)
 
 
 def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
