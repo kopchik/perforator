@@ -31,23 +31,35 @@ basis = dict(
   # sdagp  = BENCHES + "test_SDAG/test_sdag+ -t 5 -q 1000 /home/sources/perftest/benches/test_SDAG/dataset.dat",
   blosc  = BENCHES + "pyblosc.py -r 10000000",
   burnP6 = "burnP6",
-  ffmpeg = "ffmpeg -i /home/sources/avatar_trailer.m2ts \
-            -threads 1 -t 10 -y -strict -2 -loglevel panic \
-            -acodec aac -aq 100 \
-            -vcodec libx264 -preset fast -crf 22 \
-            -f mp4 /dev/null",
+  ffmpeg = "ffmpeg -i /home/sources/ToS-4k-1920.mov" \
+           " -threads 1 -y -strict -2 -loglevel panic" \
+           " -acodec aac -aq 100" \
+           " -vcodec libx264 -preset fast -crf 22" \
+           " -f mp4 /dev/null",
 )
+for k,v in basis.items(): print("{:<10} {}".format(k,v))
+
+class cfg:
+  sys_ipc_time = 3
+  task_profile_time = 0.1
+  sys_optimize_samples = 10
+  warmup_time = 3
+  idleness = 100
 
 
 def generate_load(num):
-  pids = []
-  for x in range(num):
+  tasks = []
+  for i in range(num):
     name, cmd = choice(list(basis.items()))
+    print("spawning", name, i)
     p = Popen(shlex.split(cmd), stdout=DEVNULL, stderr=DEVNULL)
     atexit.register(p.kill)
     print("{:<8} {}".format(p.pid, name))
-    pids.append(p.pid)
-  return pids
+    task = Task(p.pid)
+    task.pin(i)
+    tasks.append(task)
+  return tasks
+
 
 def get_heavy_tasks(thr, t=1):
   from psutil import process_iter
@@ -93,7 +105,7 @@ class Task:
     """ Pin task to the specific cpu.
         Pins to current cpu if none provided.
     """
-    if not cpu:
+    if cpu is None:
       cpu = get_cur_cpu(self.pid)
     if self.cpu and self.cpu == cpu:
       print("%s is still pinned to %s" % (self.pid, cpu))
@@ -102,7 +114,7 @@ class Task:
     if self.cpu:
       print("migrating pid %s: %s -> %s" % (self.pid, self.cpu, cpu))
     else:
-      print("pinning %s to %s" %(pid, cpu))
+      print("pinning %s to %s" %(self.pid, cpu))
     self.cpu = cpu
 
   def kill(self, sig=SIGKILL):
@@ -131,8 +143,8 @@ class Task:
     return "%s(%s)" %(cls, self.pid)
 
 
-def get_sys_ipc(t=3.0):
-  r = ipc(time=1)
+def get_sys_ipc(t=cfg.sys_ipc_time):
+  r = ipc(time=t)
   print("system IPC: {:.3}".format(r))
   return r
 
@@ -146,7 +158,7 @@ def get_pinned_tasks(threshold):
   return tasks
 
 
-def task_profile(task, shared, ideal, impact, t=0.1):
+def task_profile(task, shared, ideal, impact, t=cfg.task_profile_time):
   # shared performace
   shared_ipc = task.ipc(t)
 
@@ -163,11 +175,7 @@ def task_profile(task, shared, ideal, impact, t=0.1):
   impact[task].append(imp*r)
 
 
-def get_impact(shared, ideal):
-  return ideal - shared
-
-
-def sys_optimize_dead_simple(tasks, repeat=3):
+def sys_optimize_dead_simple(tasks, repeat=cfg.sys_optimize_samples):
   shared = defaultdict(list)
   ideal  = defaultdict(list)
   impact = defaultdict(list)
@@ -195,23 +203,19 @@ if __name__ == '__main__':
   print("config:", args)
   print(topology)
 
-  wait_idleness(100, t=3)
-  pids = generate_load(num=len(topology.all))
-  sleep(10)  # warm-up
+  wait_idleness(cfg.idleness, t=3)
+  tasks = generate_load(num=len(topology.all))
 
-  tasks = []
-  for pid in pids:
-    task = Task(pid)
-    task.pin()
-    tasks.append(task)
+  #warm-up
+  sleep(cfg.warmup_time)
 
   # initial performance
-  before_sys_ipc =  get_sys_ipc()
+  perf_before =  get_sys_ipc()
 
   print(sys_optimize_dead_simple(tasks))
 
   # after tasks were optimized
-  after_sys_ipc =  get_sys_ipc()
-  improvement = (after_sys_ipc - before_sys_ipc) / before_sys_ipc
+  perf_after =  get_sys_ipc()
+  improvement = (perf_after - perf_before) / perf_before
   print("improvement: {:.1%}".format(improvement))
   print("{:.3}".format(improvement), file=sys.stderr)
