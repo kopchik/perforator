@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 
 from perf.utils import wait_idleness
-from perf.numa import topology
+from perf.numa import *
 from perf.perftool import ipc, stat
+import perf; perf.min_version((2,9))
+
+from useful.log import Log, logfilter
+from useful.mstring import s
 from useful.run import run
-import perf; perf.min_version((2,8))
 
 from signal import SIGSTOP, SIGCONT, SIGKILL
-from collections import defaultdict
-from statistics import mean
 from subprocess import Popen, DEVNULL
+from collections import defaultdict
+from itertools import permutations
+from statistics import mean
 from random import choice
 from time import sleep
 from os import kill
@@ -37,7 +41,9 @@ basis = dict(
            " -vcodec libx264 -preset fast -crf 22" \
            " -f mp4 /dev/null",
 )
-for k,v in basis.items(): print("{:<10} {}".format(k,v))
+
+log = Log(['profile'])
+for k,v in basis.items(): log.debug("{:<10} {}".format(k,v))
 
 class cfg:
   sys_ipc_time = 3
@@ -45,15 +51,15 @@ class cfg:
   sys_optimize_samples = 10
   warmup_time = 3
   idleness = 100
-
+  cpu_mask = 0b1111
 
 def generate_load(num):
   tasks = []
+  all_tasks = list(basis.items())
   for i in range(num):
-    name, cmd = choice(list(basis.items()))
+    name, cmd = all_tasks.pop(0)
     p = Popen(shlex.split(cmd), stdout=DEVNULL, stderr=DEVNULL)
     atexit.register(p.kill)
-    print("{:<8} {}".format(p.pid, name))
     task = Task(p.pid, name=name)
     #task.pin([i])
     tasks.append(task)
@@ -65,7 +71,6 @@ def get_heavy_tasks(thr, t=1):
   [p.cpu_percent() for p in process_iter()]
   sleep(t)
   r = []
-  #print("topmost resource hogs:")
   for p in process_iter():
     cpu = p.cpu_percent(None)
     if cpu > 10:
@@ -74,45 +79,13 @@ def get_heavy_tasks(thr, t=1):
   return r
 
 
-def get_cur_cpu(pid):
-  cmd = "ps h -p %s -o psr" % pid
-  rawcpu = run(cmd)
-  return int(rawcpu)
-
-
-def pin_task(pid, cpu):
-  cmd = "taskset -apc %s %s" % (cpu, pid)
-  run(cmd, sudo='root')
-
-
-def get_affinity(pid):
-  cmd = "schedtool %s" % pid
-  raw = run(cmd)
-  rawmask = raw.rsplit(b'AFFINITY')[1]
-  return int(rawmask, base=16)
-
-
-def set_affinity(pid, mask):
-  cmd = "taskset -ap %s %s" % (mask, pid)
-  run(cmd, sudo='root')
-
-
-def cpus_to_mask(cpus):
-  mask = 0x0
-  for cpu in cpus:
-    mask |= 1 << cpu
-  return mask
-
-
-def mask_to_cpus(mask):
-  cpus = []
-  i = 0
-  while mask:
-    if mask & 1:
-      cpus.append(i)
-    i += 1
-    mask = mask >> 1
-  return cpus
+def get_pinned_tasks(threshold):
+  pids = get_heavy_tasks(threshold)
+  print("pids for consideration:", pids)
+  tasks = [Task(pid) for pid in pids]
+  for task in tasks:
+    task.pin()
+  return tasks
 
 
 class Task:
@@ -129,13 +102,13 @@ class Task:
         Pins to current cpu if none provided.
     """
     if self.cpus == cpus:
-      print("%s is still pinned to %s" % (self.pid, cpus))
+      log.task.debug("%s is still pinned to %s" % (self.pid, cpus))
       return
     # if self.cpus:
     #   print("migrating pid %s: %s -> %s" % (self.pid, self.cpus, cpus))
     # else:
     #   print("pinning %s to %s" %(self.pid, cpus))
-    mask = cpus_to_mask(cpus)
+    mask = cpus2mask(cpus)
     self.set_affinity(mask)
     self.cpus = cpus
 
@@ -143,7 +116,7 @@ class Task:
     kill(self.pid, sig)
 
   def set_affinity(self, mask):
-    print("setting affinity to 0x{mask:X} {list}".format(mask=mask, list=mask_to_cpus(mask)))
+    log.task.debug("setting affinity to 0x{mask:X} {list}".format(mask=mask, list=mask2cpus(mask)))
     set_affinity(self.pid, mask)
 
   def ipc(self, time=0.1):
@@ -168,24 +141,15 @@ class Task:
 
 def get_sys_ipc(t=cfg.sys_ipc_time):
   r = ipc(time=t)
-  print("system IPC: {:.3}".format(r))
+  log.debug("system IPC: {:.3}".format(r))
   return r
 
 
 def get_sys_perf(t=cfg.sys_ipc_time):
   r = stat(time=t, events=['instructions'], systemwide=True)
-  m_ins = r['instructions']/t/1024/1024/1024
-  print("system performance: {:.2f} giga instructions per second".format(m_ins))
-  return m_ins
-
-
-def get_pinned_tasks(threshold):
-  pids = get_heavy_tasks(threshold)
-  print("pids for consideration:", pids)
-  tasks = [Task(pid) for pid in pids]
-  for task in tasks:
-    task.pin()
-  return tasks
+  giga_ins = r['instructions'] / t / (1024**3)
+  log.debug("system performance: {:.2f} giga instructions per second".format(giga_ins))
+  return giga_ins
 
 
 def task_profile(task, shared, ideal, impact, t=cfg.task_profile_time):
@@ -243,13 +207,12 @@ def sys_optimize_dead_simple3(tasks, repeat=cfg.sys_optimize_samples):
   task, _ = by_impact.pop(0)
   cpu1 = topology.by_rank[0]
   cpu2 = topology.ht_map[cpu1][0]
-  mask = cpus_to_mask([cpu1, cpu2])
+  mask = cpus2mask([cpu1, cpu2])
   task.pin([cpu1])
-  others_mask = 0xff & (~mask & 0xFF)
+  others_mask = cfg.cpu_mask & (~mask & 0xFF)
 
   for task, _ in by_impact:
     task.set_affinity(others_mask)
-
 
 
 def print_stat(tasks, shared, ideal):
@@ -262,20 +225,41 @@ def print_stat(tasks, shared, ideal):
         .format(task=task, shared=s, ideal=i, diff=diff, rel=rel))
 
 
+def try_all_permutations(tasks, out):
+  for i, perm in enumerate(permutations(topology.all)):
+    for task, cpu in zip(tasks, perm):
+      task.pin([cpu])
+    sleep(0.1)
+    perf = get_sys_perf()
+    print("{perm} => {perf}".format(perm=perm, perf=perf), file=out)
+
+
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
-  # parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
+  parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   # parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
   parser.add_argument('-t', '--threshold', type=int, default=10,
                       help="consider only tasks consuming more CPU than this")
   parser.add_argument('-o', '--output',
                       help="output file")
   args = parser.parse_args()
-  print("config:", args)
-  print(topology)
+
+  log.main.info("config:", args)
+
+  if args.debug:
+    cfg.idleness = 1000
+    cfg.sys_ipc_time = 0.1
+  else:
+    logfilter.rules = [
+      ('profile.task.*', False)
+    ]
+  if args.output:
+    out = open(args.output, 'at')
 
   wait_idleness(cfg.idleness, t=3)
   tasks = generate_load(num=len(topology.all))
+  try_all_permutations(tasks, out)
+  import sys; sys.exit()
 
   #warm-up
   sleep(cfg.warmup_time)
@@ -283,11 +267,11 @@ if __name__ == '__main__':
   # initial performance
   perf_before =  get_sys_perf()
 
-  print(sys_optimize_dead_simple3(tasks))
+  sys_optimize_dead_simple3(tasks)
 
   # after tasks were optimized
   perf_after =  get_sys_perf()
   improvement = (perf_after - perf_before) / perf_before * 100
-  print("improvement: {:.1f}%".format(improvement))
+  log.main.info("improvement: {:.1f}%".format(improvement))
   if args.output:
-    print("{:.1f}".format(improvement), file=open(args.output, 'at'))
+    print("{:.1f}".format(improvement), file=out)
