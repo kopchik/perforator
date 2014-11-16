@@ -21,6 +21,7 @@ from config import basis, VMS, IDLENESS
 
 
 class Setup:
+  """ Launch all VMS at start, stop them at exit. """
   pipes = None
 
   def __init__(self, vms, benchmarks):
@@ -28,7 +29,7 @@ class Setup:
     self.vms = vms
     self.pipes = []
     if any([vm.start() for vm in vms]):
-      print("some of vms were not started, giving it time to start")
+      print("some of vms were not started, giving them time to start")
       sleep(10)
 
   def __enter__(self):
@@ -52,7 +53,7 @@ class Setup:
 
 
 def threadulator(f, params):
-  '''execute routine actions in parallel'''
+  """ Execute routine actions in parallel. """
   threads = []
   for param in params:
     t = Thread(target=f, args=param)
@@ -136,6 +137,7 @@ def reverse(num:int=1, time:float=0.1, pause:float=0.1, vms=None):
 
 
 def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
+  """ How ideal performance looks like in isolated and quasi-isolated environments. """
   pure = defaultdict(list)
   quasi = defaultdict(list)
 
@@ -201,13 +203,15 @@ def ragged(time:int=10, interval:int=1, vms=None):
 
 
 def freezing(num, interval, pause, delay:float=0.0, vms=None):
+  """ Measure IPC of individual VMS in freezing environment. """
   result = defaultdict(list)
   for i,vm in enumerate(vms):
     #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
     for _ in range(num):
       sleep(pause)
       vm.exclusive()
-      if delay: sleep(delay)
+      if delay:
+        sleep(delay)
       try:
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
@@ -220,6 +224,7 @@ def freezing(num, interval, pause, delay:float=0.0, vms=None):
 
 
 def delay(num:int=1, interval:float=0.1, pause:float=0.1, delay:float=0.01, vms=None):
+  """ How delay after freeze affects precision. """
   without   = freezing(num, interval, pause, 0.0, vms)
   withdelay = freezing(num, interval, pause, delay, vms)
   print(without)
@@ -266,6 +271,9 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
 
   return Struct(standard=standard, withskip=withskip)
 
+def top(vms):
+  import gui
+  gui.top(vms)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
