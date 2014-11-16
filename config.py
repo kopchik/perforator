@@ -36,7 +36,7 @@ if HOSTNAME == 'limit':
   RESULTS = "./results/limit/"
 
   #for i, cpu in enumerate(topology.cpus_no_ht):
-  for i, cpu in enumerate(topology.cpus):
+  for i, cpu in enumerate(topology.all):
     vm = Template(
         name = "vm%s"%i,
         auto = True,
