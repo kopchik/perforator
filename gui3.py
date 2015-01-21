@@ -2,22 +2,12 @@
 import curses
 import time
 import sys
-from useful.log import Log
+import math
 
-"""
-per-core perf:
-#######################################
-#######################################
-#######################################
-#######################################
-status
-settings
-optimization: auto manual
-log verbosity: ...
-cmd
-"""
+# TODO: selectors?
 
-log = Log(file=open("/tmp/gui.log", "wt", 2))
+# from useful.log import Log
+# log = Log(file=open("/tmp/gui.log", "wt", 2))
 
 
 def splitline(line, size):
@@ -117,7 +107,7 @@ class Widget:
   def on_focus(self):
     """ Widget received focus. """
 
-  def draw(self, canvas):
+  def draw(self):
     """ Widget draws itself on canvas. """
     raise NotImplementedError
 
@@ -134,7 +124,6 @@ class VList(Widget):
     self.widgets = widgets
 
   def fit(self, pos, max_size, canvas):
-    log.debug(" VLISt pos:%s" % (pos))
     size_x, size_y = 0, 0
     size = XY(size_x, size_y)
     for widget in self.widgets:
@@ -164,11 +153,10 @@ class String(Widget):
     assert max_size > self.size, "widget does not fit"
     self.pos = pos
     self.canvas = canvas
-    log.debug("pos:%s -- size: %s" % (self.pos, self.size))
     return self.size
 
   def draw(self):
-    self.canvas.printf(self.text, self.pos)
+    self.canvas.printf(self.text[:self.size.x], self.pos)
 
 
 class Text(Widget):
@@ -206,19 +194,21 @@ class Text(Widget):
 class Button(String):
   can_focus = True
 
-  def __init__(self, text='OK!', **kwargs):
+  def __init__(self, text='OK!', cb=None, **kwargs):
     super().__init__(**kwargs)
     self.size = XY(len(text)+2, 1)
     self.text = text
     self.has_focus = False
+    self.cb = cb
 
   def on_focus(self):
     self.has_focus = True
     self.draw()
     self.canvas.curs_set(0)
 
-  def on_click():
-    pass
+  def on_click(self):
+    if self.cb:
+      self.cb()
 
   def input(self, key):
     if key == 'KEY_UP':
@@ -282,12 +272,16 @@ class Input(Widget):
 
 
 class CMDInput(Input):
-  def on_enter(self):
-    pass
+  def __init__(self, cb=None, **kwargs):
+    super().__init__(**kwargs)
+    self.text = ""
+    self.cb = cb
+
 
   def input(self, key):
     if key == '\n':
-      self.on_enter()
+      if self.cb:
+        self.cb(self.text)
       self.text = ''
       self.draw()
     else:
@@ -308,7 +302,6 @@ class Border(Widget):
     child.fit(pos+XY(1,1), max_size-XY(2,2), canvas)
     self.size  = XY(max(child.size.x, len(label)),
                     child.size.y) + XY(2,2)
-    log.debug("my po: %s, size %s" % (self.pos, self.size))
     return self.size
 
   def draw(self):
@@ -331,6 +324,32 @@ class Border(Widget):
     self.child.draw()
 
 
+class Bars(Widget):
+  def __init__(self, data=[0], **kwargs):
+    self.num = len(data)
+    self.data = data
+
+  def fit(self, pos, max_size, canvas):
+    self.canvas = canvas
+    self.pos = pos
+    size_y = self.num
+    size_x = max_size.x
+    self.size = XY(size_x, size_y)
+    return self.size
+
+  def update(self, data):
+    self.data = data
+    self.draw()
+
+  def draw(self):
+    width = self.size.x
+    for i, datum in enumerate(self.data):
+      pos_x = self.pos.x
+      pos_y = self.pos.y + i
+      bar = "█" * math.ceil(width*datum)
+      self.canvas.printf(bar, XY(pos_x, pos_y))
+
+
 def mywrapper(f):
   return lambda *args, **kwargs: curses.wrapper(f, *args, **kwargs)
 
@@ -342,19 +361,26 @@ def test(scr):
   canvas = Canvas(scr, size)
   canvas.clear()
 
+  logwin = Text(size=XY(70,8))
+  def cb(s):
+    tstamp = time.strftime("%H:%M:%S", time.localtime())
+    logwin.println("{} {}".format(tstamp, s))
+
+  inpt = CMDInput(cb=cb)
+  bars = Bars([0.01,0.5, 0.7, 1])
   main = \
     Border(
       VList(
-          Button("OK!"),
           String("test_string"),
           String("test_string2"),
-          Border(Text()),
-          CMDInput(),
+          Border(bars),
+          Border(logwin, label="Logs"),
+          inpt,
+          Button("QUIT", cb=sys.exit),
           ),
       label="test_label")
   main.fit(pos=XY(0,0), max_size=size, canvas=canvas)
   main.draw()
-
 
   if Widget.cur_focus:
     Widget.cur_focus.on_focus()
