@@ -5,7 +5,7 @@ import sys
 import math
 from functools import total_ordering
 
-# TODO: selectors?
+# TODO: check that ID's are unique
 
 # from useful.log import Log
 # log = Log(file=open("/tmp/gui.log", "wt", 2))
@@ -181,7 +181,7 @@ class VList(Widget):
       pos = pos + XY(0, widget.size.y)
 
 
-# TODO: clip
+# TODO: clipping?
 class String(Widget):
   def __init__(self, text="", **kwargs):
     super().__init__(**kwargs)
@@ -326,19 +326,23 @@ class CMDInput(Input):
 class Border(Widget):
   def __init__(self, *args, label="", **kwargs):
     super().__init__(*args, **kwargs)
+    assert len(self.children) == 1,  \
+        "border fits only one child"
     self.label = label
 
   def set_size(self, maxsize):
     label = self.label
     child = self.children[0]
     child.set_size(maxsize-XY(2,2))
-    self.size  = XY(max(child.size.x, len(label)),
-                    child.size.y) + XY(2,2)
+    size_x = max(child.size.x, len(label))  # make sure label fits
+    size_y = child.size.y
+    self.size = XY(size_x, size_y) + XY(2,2)  # 2x2 is a border
     return self.size
 
   def set_pos(self, pos):
     super().set_pos(pos)
-    self.children[0].set_pos(pos+XY(1,1))
+    child = self.children[0]
+    child.set_pos(pos+XY(1,1))  # 1x1 is offset by border
 
   def draw(self):
     pos = self.pos
