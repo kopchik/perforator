@@ -3,6 +3,7 @@ import curses
 import time
 import sys
 import math
+from functools import total_ordering
 
 # TODO: selectors?
 
@@ -24,6 +25,7 @@ class Error:
   """ Generic class for all errors of this module. """
 
 
+@total_ordering
 class XY:
   def __init__(self, x=0, y=0):
     self.x = x
@@ -39,6 +41,11 @@ class XY:
 
   def __gt__(self, other):
     return self.x > other.x and self.y > other.y
+
+  def __eq__(self, other):
+    if not isinstance(other, self.__class__):
+      return False
+    return self.x == other.x and self.y == other.y
 
   def __iter__(self):
     return iter([self.x, self.y])
@@ -79,18 +86,26 @@ class Widget:
   pos = XY(0,0)      # position
   size = XY(0,0)     # actual widget size
   can_focus = False  # can widget receive a focus
-
+  id = None          # identificator for selectors
   focus_order = []
+  parent = None      # parent widget
   cur_focus = None   # currently focused widget
+  canvas = None
 
-  def __init__(self, **kwargs):
+  def __init__(self, *children, **kwargs):
+    self.children = list(children)
+    for child in children:
+      child.parent = self
     self.__dict__.update(kwargs)
     if self.can_focus:
       self.focus_order.append(self)
       if not Widget.cur_focus:
         Widget.cur_focus = self
-    # else:
-    #   import pdb; pdb.set_trace()
+
+  def init(self, pos, maxsize, canvas):
+    self.set_size(maxsize)
+    self.set_pos(pos)
+    self.set_canvas(canvas)
 
   def move_focus(self, inc=1):
     """ Switch focus to next widget. """
@@ -100,15 +115,24 @@ class Widget:
     Widget.cur_focus = widget
     widget.on_focus()
 
-  def fit(self, pos, max_size):
+  def set_size(self, maxsize):
     """ Request widget to position itself. """
     raise NotImplementedError
 
+  def set_pos(self, pos=XY(0,0)):
+    self.pos = pos
+
+  def set_canvas(self, canvas):
+    self.canvas = canvas
+    for child in self.children:
+      child.set_canvas(canvas)
+
   def on_focus(self):
     """ Widget received focus. """
+    raise NotImplementedError
 
   def draw(self):
-    """ Widget draws itself on canvas. """
+    """ Draw widget on canvas. """
     raise NotImplementedError
 
   def input(self, key):
@@ -117,27 +141,42 @@ class Widget:
     elif key in ['KEY_DOWN', '\n']:
       self.move_focus(1)
 
+  def __getitem__(self, id):
+    if self.id == id:
+      return self
+    for child in self.children:
+      r = child[id]
+      if r:
+        return r
+    return None
+
 
 class VList(Widget):
-  def __init__(self, *widgets, **kwargs):
-    super().__init__(**kwargs)
-    self.widgets = widgets
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
 
-  def fit(self, pos, max_size, canvas):
+  def set_pos(self, pos):
+    self.pos = pos
+    size_y = 0
+    for child in self.children:
+      child_pos = XY(pos.x, pos.y+size_y)
+      child.set_pos(child_pos)
+      size_y += child.size.y
+
+  def set_size(self, maxsize):
     size_x, size_y = 0, 0
     size = XY(size_x, size_y)
-    for widget in self.widgets:
-      widget.fit(XY(pos.x, pos.y+size_y), max_size-size, canvas)
-      size_x = max(size_x, widget.size.x)
-      size_y += widget.size.y
+    for child in self.children:
+      child.set_size(maxsize-size)
+      size_x = max(size_x, child.size.x)
+      size_y += child.size.y
       size = XY(size_x, size_y)
     self.size = size
-    self.pos = pos
-    self.canvas = canvas
+    return self.size
 
   def draw(self):
     pos = self.pos
-    for widget in self.widgets:
+    for widget in self.children:
       widget.draw()
       pos = pos + XY(0, widget.size.y)
 
@@ -149,48 +188,12 @@ class String(Widget):
     self.text = text
     self.size = XY(len(text), 1)
 
-  def fit(self, pos, max_size, canvas):
-    assert max_size > self.size, "widget does not fit"
-    self.pos = pos
-    self.canvas = canvas
+  def set_size(self, maxsize):
+    assert self.size <= maxsize, "widget does not fit"
     return self.size
 
   def draw(self):
     self.canvas.printf(self.text[:self.size.x], self.pos)
-
-
-class Text(Widget):
-  size = XY(40, 20)
-
-  def __init__(self, **kwargs):
-    self.lines = []
-    super().__init__(**kwargs)
-
-  def fit(self, pos, max_size, canvas):
-    self.pos = pos
-    self.canvas = canvas
-    return self.size
-
-  def draw(self):
-    result = []
-    for line in self.lines:
-      chunks = splitline(line, self.size.x)
-      result.extend(chunks)
-
-    visible = result[-self.size.y:]
-
-    for i, line in enumerate(visible):
-      pos = self.pos+XY(0,i)
-      self.canvas.printf(" "*self.size.x, pos)
-      self.canvas.printf(line, pos)
-
-  def println(self, s):
-    self.lines.append(str(s))
-    self.draw()
-
-  def clear(self):
-    self.lines = []
-    self.draw()
 
 
 class Button(String):
@@ -232,6 +235,39 @@ class Button(String):
     self.canvas.printf(text, self.pos)
 
 
+class Text(Widget):
+  size = XY(40, 20)
+
+  def __init__(self, **kwargs):
+    self.lines = []
+    super().__init__(**kwargs)
+
+  def set_size(self, maxsize):
+    assert self.size <= maxsize
+    return self.size
+
+  def draw(self):
+    result = []
+    for line in self.lines:
+      chunks = splitline(line, self.size.x)
+      result.extend(chunks)
+
+    visible = result[-self.size.y:]
+
+    for i, line in enumerate(visible):
+      pos = self.pos+XY(0,i)
+      self.canvas.printf(" "*self.size.x, pos)
+      self.canvas.printf(line, pos)
+
+  def println(self, s):
+    self.lines.append(str(s))
+    self.draw()
+
+  def clear(self):
+    self.lines = []
+    self.draw()
+
+
 class Input(Widget):
   can_focus = True
   min_width = 4
@@ -241,11 +277,9 @@ class Input(Widget):
     super().__init__(**kwargs)
     self.text = ""
 
-  def fit(self, pos, max_size, canvas):
-    self.canvas = canvas
-    width = min(self.max_width, max_size.x)
+  def set_size(self, maxsize):
+    width = min(self.max_width, maxsize.x)
     self.size = XY(width, 1)
-    self.pos = pos
     return self.size
 
   def on_focus(self):
@@ -279,7 +313,6 @@ class CMDInput(Input):
     self.text = ""
     self.cb = cb
 
-
   def input(self, key):
     if key == '\n':
       if self.cb:
@@ -291,20 +324,21 @@ class CMDInput(Input):
 
 
 class Border(Widget):
-  def __init__(self, child=None, label="", **kwargs):
-    super().__init__(**kwargs)
-    self.child = child
+  def __init__(self, *args, label="", **kwargs):
+    super().__init__(*args, **kwargs)
     self.label = label
 
-  def fit(self, pos, max_size, canvas):
+  def set_size(self, maxsize):
     label = self.label
-    child = self.child
-    self.pos = pos
-    self.canvas = canvas
-    child.fit(pos+XY(1,1), max_size-XY(2,2), canvas)
+    child = self.children[0]
+    child.set_size(maxsize-XY(2,2))
     self.size  = XY(max(child.size.x, len(label)),
                     child.size.y) + XY(2,2)
     return self.size
+
+  def set_pos(self, pos):
+    super().set_pos(pos)
+    self.children[0].set_pos(pos+XY(1,1))
 
   def draw(self):
     pos = self.pos
@@ -323,19 +357,18 @@ class Border(Widget):
     canvas.printf('┘', pos+self.size-XY(1,1))
 
     canvas.printf(self.label, pos+XY(1,0))
-    self.child.draw()
+    self.children[0].draw()
 
 
 class Bars(Widget):
   def __init__(self, data=[0], **kwargs):
+    super().__init__(**kwargs)
     self.num = len(data)
     self.data = data
 
-  def fit(self, pos, max_size, canvas):
-    self.canvas = canvas
-    self.pos = pos
+  def set_size(self, maxsize):
     size_y = self.num
-    size_x = max_size.x
+    size_x = maxsize.x
     self.size = XY(size_x, size_y)
     return self.size
 
@@ -357,32 +390,36 @@ def mywrapper(f):
 
 
 @mywrapper
-def test(scr):
+def gui(scr):
   size_y, size_x = scr.getmaxyx()
   size = XY(size_x, size_y)
   canvas = Canvas(scr, size)
   canvas.clear()
 
-  logwin = Text(size=XY(70,8))
-  def cb(s):
-    tstamp = time.strftime("%H:%M:%S", time.localtime())
-    logwin.println("{} {}".format(tstamp, s))
-
-  inpt = CMDInput(cb=cb)
-  bars = Bars([0.01,0.5, 0.7, 1])
-  main = \
+  root = \
     Border(
       VList(
           String("test_string"),
           String("test_string2"),
-          Border(bars),
-          Border(logwin, label="Logs"),
-          inpt,
+          Border(Bars([0.01,0.5, 0.7, 1])),
+          Border(
+                 Text(size=XY(70,8), id='logwin'),
+                 label="Logs"),
+          CMDInput(id='cmdinpt'),
           Button("QUIT", cb=sys.exit),
           ),
       label="test_label")
-  main.fit(pos=XY(0,0), max_size=size, canvas=canvas)
-  main.draw()
+
+
+  logwin = root['logwin']
+  def cb(s):
+    tstamp = time.strftime("%H:%M:%S", time.localtime())
+    logwin.println("{} {}".format(tstamp, s))
+  root['cmdinpt'].cb = cb
+
+
+  root.init(pos=XY(0,0), maxsize=size, canvas=canvas)
+  root.draw()
 
   if Widget.cur_focus:
     Widget.cur_focus.on_focus()
@@ -396,4 +433,4 @@ def test(scr):
 
 
 if __name__ == '__main__':
-  test()
+  gui()
