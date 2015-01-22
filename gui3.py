@@ -180,7 +180,9 @@ class Text(Widget):
     visible = result[-self.size.y:]
 
     for i, line in enumerate(visible):
-      self.canvas.printf(line, self.pos+XY(0,i))
+      pos = self.pos+XY(0,i)
+      self.canvas.printf(" "*self.size.x, pos)
+      self.canvas.printf(line, pos)
 
   def println(self, s):
     self.lines.append(str(s))
