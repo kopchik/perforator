@@ -3,9 +3,8 @@ import curses
 import time
 import sys
 import math
+import signal
 from functools import total_ordering
-
-# TODO: check that ID's are unique
 
 # from useful.log import Log
 # log = Log(file=open("/tmp/gui.log", "wt", 2))
@@ -21,8 +20,12 @@ def splitline(line, size):
   return result
 
 
-class Error:
+class Error(Exception):
   """ Generic class for all errors of this module. """
+
+
+class NoSpace(Error):
+  """ Not enough space to display widget. """
 
 
 @total_ordering
@@ -41,6 +44,9 @@ class XY:
 
   def __gt__(self, other):
     return self.x > other.x and self.y > other.y
+
+  def __ge__(self, other):
+    return self.x >= other.x and self.y >= other.y
 
   def __eq__(self, other):
     if not isinstance(other, self.__class__):
@@ -71,9 +77,20 @@ class Canvas:
     curses.curs_set(lvl)
 
   def set_pos(self, pos=None):
+    assert XY(0,0) <= pos < self.size
     if pos:
       self.pos = pos
     self._scr.move(self.pos.y, self.pos.x)
+
+  def resize(self):
+    curses.endwin()
+    curses.initscr()
+    size_y, size_x = self._scr.getmaxyx()
+    self.size = XY(size_x, size_y)
+    return self.size
+
+  def clear(self):
+    self._scr.erase()
 
   def printf(self, text, pos=None):
     text = str(text)
@@ -81,20 +98,33 @@ class Canvas:
       self.set_pos(pos)
     self._scr.addstr(text)
 
+fixed = 0
+horiz = 1
+vert = 2
+both = 3
 
 class Widget:
   pos = XY(0,0)      # position
-  size = XY(0,0)     # actual widget size
-  can_focus = False  # can widget receive a focus
-  id = None          # identificator for selectors
+  size = XY(0,0)     # actual widget size calculated in set_size
+  minsize = XY(1,1)  # minimum size for stretching widgets
+  stretch = horiz    # widget size policy
+  id = None          # ID that can be selected
+  all_ids = []       # used for checking ID uniqueness
+  can_focus = False  # widget can receive a focus
   focus_order = []
   parent = None      # parent widget
   cur_focus = None   # currently focused widget
-  canvas = None
+  canvas = None      # where all widgets draw themselves
+  stretch = horiz
 
   def __init__(self, *children, **kwargs):
     self.children = list(children)
     for child in children:
+      if child.id:
+        if child.id in self.all_ids:
+          raise Exception("duplicate ID \"%s\", "
+                          "IDs must be unique" % child.id)
+        self.all_ids.append(child.id)
       child.parent = self
     self.__dict__.update(kwargs)
     if self.can_focus:
@@ -102,10 +132,12 @@ class Widget:
       if not Widget.cur_focus:
         Widget.cur_focus = self
 
-  def init(self, pos, maxsize, canvas):
+  # TODO: better name
+  def init(self, pos, maxsize, canvas=None):
     self.set_size(maxsize)
     self.set_pos(pos)
-    self.set_canvas(canvas)
+    if canvas:
+      self.set_canvas(canvas)
 
   def move_focus(self, inc=1):
     """ Switch focus to next widget. """
@@ -117,7 +149,20 @@ class Widget:
 
   def set_size(self, maxsize):
     """ Request widget to position itself. """
-    raise NotImplementedError
+    if self.minsize and self.minsize >= maxsize:
+      raise NoSpace("{}: min size: {}, available: {}"  \
+                    .format(self, self.minsize, maxsize))
+    if self.stretch == both:
+      self.size = maxsize
+    elif self.stretch == horiz:
+      self.size = XY(maxsize.x, self.minsize.y)
+    elif self.stretch == vert:
+      self.size = XY(self.minsize.x, maxsize.y)
+    elif self.stretch == fixed:
+      pass  # keep size unchanged
+    else:
+      raise Exception("unknown stretch policy %s" % self.stretch)
+    return self.size
 
   def set_pos(self, pos=XY(0,0)):
     self.pos = pos
@@ -141,6 +186,19 @@ class Widget:
     elif key in ['KEY_DOWN', '\n']:
       self.move_focus(1)
 
+  def on_sigwinch(self, sig, frame):
+    size = self.canvas.resize()
+    self.canvas.clear()
+    self.init(self.pos, size)
+    self.draw()
+    if self.cur_focus:
+      self.cur_focus.on_focus()
+
+  def setup_sigwinch(self):
+    # there is no old hanlder, see 'python Issue3949'
+    signal.signal(signal.SIGWINCH,
+                  self.on_sigwinch)
+
   def __getitem__(self, id):
     if self.id == id:
       return self
@@ -149,6 +207,10 @@ class Widget:
       if r:
         return r
     return None
+
+  def __repr__(self):
+    cls = self.__class__.__name__
+    return "<{}@{}>".format(cls, id(self))
 
 
 class VList(Widget):
@@ -167,7 +229,8 @@ class VList(Widget):
     size_x, size_y = 0, 0
     size = XY(size_x, size_y)
     for child in self.children:
-      child.set_size(maxsize-size)
+      child_maxsize = XY(maxsize.x, maxsize.y-size.y)
+      child.set_size(child_maxsize)
       size_x = max(size_x, child.size.x)
       size_y += child.size.y
       size = XY(size_x, size_y)
@@ -236,24 +299,25 @@ class Button(String):
 
 
 class Text(Widget):
-  size = XY(40, 20)
+  minsize = XY(5, 5)
+  stretch = horiz
 
   def __init__(self, **kwargs):
     self.lines = []
     super().__init__(**kwargs)
 
-  def set_size(self, maxsize):
-    assert self.size <= maxsize
-    return self.size
+  # def set_size(self, maxsize):
+  #   assert self.size <= maxsize
+  #   return self.size
 
   def draw(self):
+    # wrap long lines
     result = []
     for line in self.lines:
       chunks = splitline(line, self.size.x)
       result.extend(chunks)
-
+    # display only visible lines
     visible = result[-self.size.y:]
-
     for i, line in enumerate(visible):
       pos = self.pos+XY(0,i)
       self.canvas.printf(" "*self.size.x, pos)
@@ -371,9 +435,11 @@ class Bars(Widget):
     self.data = data
 
   def set_size(self, maxsize):
-    size_y = self.num
     size_x = maxsize.x
-    self.size = XY(size_x, size_y)
+    size_y = self.num
+    size = XY(size_x, size_y)
+    assert size < maxsize
+    self.size = size
     return self.size
 
   def update(self, data):
@@ -401,34 +467,42 @@ def gui(scr):
   canvas.clear()
 
   root = \
-    Border(
+      Border(
       VList(
-          String("test_string"),
-          String("test_string2"),
-          Border(Bars([0.01,0.5, 0.7, 1])),
           Border(
-                 Text(size=XY(70,8), id='logwin'),
-                 label="Logs"),
+            Bars([0.01,0.5, 0.7, 1])
+          ),
+          Border(
+            Text(id='logwin'),
+            label="Logs"),
           CMDInput(id='cmdinpt'),
           Button("QUIT", cb=sys.exit),
           ),
       label="test_label")
 
-
   logwin = root['logwin']
   def cb(s):
     tstamp = time.strftime("%H:%M:%S", time.localtime())
     logwin.println("{} {}".format(tstamp, s))
+    if s == 'quit':
+      sys.exit()
   root['cmdinpt'].cb = cb
 
-
   root.init(pos=XY(0,0), maxsize=size, canvas=canvas)
+  root.setup_sigwinch()
   root.draw()
 
-  if Widget.cur_focus:
-    Widget.cur_focus.on_focus()
+
+  if root.cur_focus:
+    root.cur_focus.on_focus()
   while True:
-    key = scr.getkey()
+    try:
+      key = scr.getkey()
+    except KeyboardInterrupt:  # TODO: do not do this
+      break
+    except curses.error:
+      # this is very likely to caused by terminal resize O_o
+      continue
     if key == '\x1b':
       break
     if Widget.cur_focus:
@@ -437,4 +511,5 @@ def gui(scr):
 
 
 if __name__ == '__main__':
+
   gui()
