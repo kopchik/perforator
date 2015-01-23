@@ -203,14 +203,17 @@ class Widget:
     if self.id == id:
       return self
     for child in self.children:
-      r = child[id]
-      if r:
-        return r
-    return None
+      try:
+        return child[id]
+      except KeyError:
+        pass
+    raise KeyError
 
   def __repr__(self):
     cls = self.__class__.__name__
-    return "<{}@{}>".format(cls, id(self))
+    if self.id:
+      id_ = self.id if self.id else id(self)
+    return "<{}@{:x}>".format(cls, id_)
 
 
 class VList(Widget):
@@ -498,7 +501,7 @@ def gui(scr):
   while True:
     try:
       key = scr.getkey()
-    except KeyboardInterrupt:  # TODO: do not do this
+    except KeyboardInterrupt:
       break
     except curses.error:
       # this is very likely to caused by terminal resize O_o
