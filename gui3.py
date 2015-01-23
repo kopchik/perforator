@@ -66,7 +66,7 @@ class Canvas:
     self._scr = scr
     self._scr.immedok(1)
     self.size = size
-    self.pos = XY(0,0)
+    self.pos = XY(0, 0)
 
   def clear(self):
     self._scr.clear()
@@ -77,7 +77,7 @@ class Canvas:
     curses.curs_set(lvl)
 
   def set_pos(self, pos=None):
-    assert XY(0,0) <= pos < self.size
+    assert XY(0, 0) <= pos < self.size
     if pos:
       self.pos = pos
     self._scr.move(self.pos.y, self.pos.x)
@@ -98,23 +98,25 @@ class Canvas:
       self.set_pos(pos)
     self._scr.addstr(text)
 
+
 fixed = 0
 horiz = 1
 vert = 2
 both = 3
 
+
 class Widget:
-  pos = XY(0,0)      # position
-  size = XY(0,0)     # actual widget size calculated in set_size
-  minsize = XY(1,1)  # minimum size for stretching widgets
-  stretch = horiz    # widget size policy
-  id = None          # ID that can be selected
-  all_ids = []       # used for checking ID uniqueness
-  can_focus = False  # widget can receive a focus
+  pos = XY(0, 0)      # position
+  size = XY(0, 0)     # actual widget size calculated in set_size
+  minsize = XY(1, 1)  # minimum size for stretching widgets
+  stretch = horiz     # widget size policy
+  id = None           # ID that can be selected
+  all_ids = []        # used for checking ID uniqueness
+  can_focus = False   # widget can receive a focus
   focus_order = []
-  parent = None      # parent widget
-  cur_focus = None   # currently focused widget
-  canvas = None      # where all widgets draw themselves
+  parent = None       # parent widget
+  cur_focus = None    # currently focused widget
+  canvas = None       # where all widgets draw themselves
   stretch = horiz
 
   def __init__(self, *children, **kwargs):
@@ -150,7 +152,7 @@ class Widget:
   def set_size(self, maxsize):
     """ Request widget to position itself. """
     if self.minsize and self.minsize >= maxsize:
-      raise NoSpace("{}: min size: {}, available: {}"  \
+      raise NoSpace("{}: min size: {}, available: {}"
                     .format(self, self.minsize, maxsize))
     if self.stretch == both:
       self.size = maxsize
@@ -164,7 +166,7 @@ class Widget:
       raise Exception("unknown stretch policy %s" % self.stretch)
     return self.size
 
-  def set_pos(self, pos=XY(0,0)):
+  def set_pos(self, pos=XY(0, 0)):
     self.pos = pos
 
   def set_canvas(self, canvas):
@@ -322,7 +324,7 @@ class Text(Widget):
     # display only visible lines
     visible = result[-self.size.y:]
     for i, line in enumerate(visible):
-      pos = self.pos+XY(0,i)
+      pos = self.pos + XY(0, i)
       self.canvas.printf(" "*self.size.x, pos)
       self.canvas.printf(line, pos)
 
@@ -400,34 +402,34 @@ class Border(Widget):
   def set_size(self, maxsize):
     label = self.label
     child = self.children[0]
-    child.set_size(maxsize-XY(2,2))
+    child.set_size(maxsize-XY(2, 2))
     size_x = max(child.size.x, len(label))  # make sure label fits
     size_y = child.size.y
-    self.size = XY(size_x, size_y) + XY(2,2)  # 2x2 is a border
+    self.size = XY(size_x, size_y) + XY(2, 2)  # 2x2 is a border
     return self.size
 
   def set_pos(self, pos):
     super().set_pos(pos)
     child = self.children[0]
-    child.set_pos(pos+XY(1,1))  # 1x1 is offset by border
+    child.set_pos(pos+XY(1, 1))  # 1x1 is offset by border
 
   def draw(self):
     pos = self.pos
     canvas = self.canvas
     for y in [pos.y, pos.y+self.size.y-1]:
       for x in range(pos.x+1, pos.x+self.size.x-1):
-        canvas.printf('─', pos=XY(x,y))
+        canvas.printf('─', pos=XY(x, y))
 
     for x in [pos.x, pos.x+self.size.x-1]:
       for y in range(pos.y+1, pos.y+self.size.y-1):
-        canvas.printf('│', pos=XY(x,y))
+        canvas.printf('│', pos=XY(x, y))
 
     canvas.printf('┌', pos)
     canvas.printf('┐', pos+XY(self.size.x-1, 0))
     canvas.printf('└', pos+XY(0, self.size.y-1))
-    canvas.printf('┘', pos+self.size-XY(1,1))
+    canvas.printf('┘', pos+self.size-XY(1, 1))
 
-    canvas.printf(self.label, pos+XY(1,0))
+    canvas.printf(self.label, pos+XY(1, 0))
     self.children[0].draw()
 
 
@@ -471,18 +473,17 @@ def gui(scr):
 
   root = \
       Border(
-      VList(
-          Border(
-            Bars([0.01,0.5, 0.7, 1])
-          ),
-          Border(
-            Text(id='logwin'),
-            label="Logs"),
-          CMDInput(id='cmdinpt'),
-          Button("QUIT", cb=sys.exit),
-          ),
-      label="test_label")
+          VList(
+              Border(
+                  Bars([0.01, 0.5, 0.7, 1])),
+              Border(
+                  Text(id='logwin'),
+                  label="Logs"),
+              CMDInput(id='cmdinpt'),
+              Button("QUIT", cb=sys.exit)),
+          label="Per-Core Performane")
 
+  # setup callbacks
   logwin = root['logwin']
   def cb(s):
     tstamp = time.strftime("%H:%M:%S", time.localtime())
@@ -491,11 +492,12 @@ def gui(scr):
       sys.exit()
   root['cmdinpt'].cb = cb
 
-  root.init(pos=XY(0,0), maxsize=size, canvas=canvas)
+  # calculate widget placement and draw widgets
+  root.init(pos=XY(0, 0), maxsize=size, canvas=canvas)
   root.setup_sigwinch()
   root.draw()
 
-
+  # main loop
   if root.cur_focus:
     root.cur_focus.on_focus()
   while True:
@@ -514,5 +516,4 @@ def gui(scr):
 
 
 if __name__ == '__main__':
-
   gui()
