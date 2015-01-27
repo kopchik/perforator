@@ -11,6 +11,7 @@ from functools import total_ordering
 
 
 def splitline(line, size):
+  """ Chop line into chunks of specified size. """
   result = []
   p = 0
   while p < len(line):
