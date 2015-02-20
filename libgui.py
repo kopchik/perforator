@@ -105,12 +105,12 @@ class Widget:
   stretch = horiz     # widget size policy
   id = None           # ID that can be selected
   all_ids = []        # used for checking ID uniqueness
-  can_focus = False   # widget can receive a focus
   focus_order = []
   parent = None       # parent widget
   cur_focus = None    # currently focused widget
+  can_focus = False   # widget can receive a focus
   canvas = None       # where all widgets draw themselves
-  stretch = horiz
+  has_focus = False
 
   def __init__(self, *children, **kwargs):
     self.children = list(children)
@@ -138,9 +138,11 @@ class Widget:
     """ Switch focus to next widget. """
     idx = self.focus_order.index(self)
     idx = (idx + inc) % len(self.focus_order)
-    widget = self.focus_order[idx]
-    Widget.cur_focus = widget
-    widget.on_focus()
+    newfocus = self.focus_order[idx]
+    if newfocus != Widget.cur_focus:
+      Widget.cur_focus.on_focus_loss()
+      Widget.cur_focus = newfocus
+      newfocus.on_focus()
 
   def set_size(self, maxsize):
     """ Request widget to position itself. """
@@ -169,7 +171,10 @@ class Widget:
 
   def on_focus(self):
     """ Widget received focus. """
-    raise NotImplementedError
+    self.has_focus = True
+
+  def on_focus_loss(self):
+    self.has_focus = False
 
   def draw(self):
     """ Draw widget on canvas. """
@@ -251,11 +256,6 @@ class String(Widget):
   def __init__(self, text="", **kwargs):
     super().__init__(**kwargs)
     self.text = text
-    self.size = XY(len(text), 1)
-
-  def set_size(self, maxsize):
-    assert self.size <= maxsize, "widget does not fit"
-    return self.size
 
   def update(self, newtext):
     # TODO: suboptimal code, we can clear only the rest of the string
@@ -275,29 +275,28 @@ class Button(String):
     super().__init__(**kwargs)
     self.size = XY(len(text)+2, 1)
     self.text = text
-    self.has_focus = False
     self.cb = cb
 
   def on_focus(self):
-    self.has_focus = True
+    super().on_focus()
     self.draw()
     self.canvas.curs_set(0)
+
+  def on_focus_loss(self):
+    super().on_focus_loss()
+    self.draw()
 
   def on_click(self):
     if self.cb:
       self.cb()
 
   def input(self, key):
-    if key == 'KEY_UP':
-      self.has_focus = False
-      self.draw()
-      self.move_focus(-1)
-    elif key in ['KEY_DOWN']:
-      self.has_focus = False
-      self.draw()
-      self.move_focus(1)
-    elif key == '\n':
+    if key == '\n':
       self.on_click()
+    else:
+      self.has_focus = False
+      self.draw()
+      super().input(key)
 
   def draw(self):
     if self.has_focus:
@@ -310,7 +309,6 @@ class Button(String):
 class Text(Widget):
   """ Text canvas. """
   minsize = XY(5, 5)
-  stretch = horiz
 
   def __init__(self, **kwargs):
     self.lines = []
