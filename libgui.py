@@ -6,6 +6,8 @@ import curses
 import signal
 import math
 
+from useful.timer import Timer
+
 
 def splitline(line, size):
   """ Chop line into chunks of specified size. """
@@ -314,8 +316,20 @@ class Text(Widget):
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
     self.lines = deque(maxlen=1000)
+    self.dirty = 0  # buffer needs to be flushed
+    self.timer = Timer(self.draw, None)
+    self.timer.start()
 
-  def draw(self):
+  def draw(self, force=True):
+    if not force:
+      if not self.dirty:
+        self.timer.restart(0.3)
+      self.dirty += 1
+      if self.dirty < 5:
+        return
+    self.dirty = 0
+    self.timer.cancel()
+
     # wrap long lines
     result = []
     for line in self.lines:
@@ -332,7 +346,7 @@ class Text(Widget):
 
   def println(self, s):
     self.lines.append(str(s))
-    self.draw()
+    self.draw(force=False)
 
   def write(self, s):
     """ This one is just to emulate file API. """
