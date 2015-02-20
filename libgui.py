@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from functools import total_ordering
+from collections import deque
 import curses
 import signal
 import math
@@ -311,12 +312,8 @@ class Text(Widget):
   minsize = XY(5, 5)
 
   def __init__(self, **kwargs):
-    self.lines = []
     super().__init__(**kwargs)
-
-  # def set_size(self, maxsize):
-  #   assert self.size <= maxsize
-  #   return self.size
+    self.lines = deque(maxlen=1000)
 
   def draw(self):
     # wrap long lines
@@ -342,7 +339,7 @@ class Text(Widget):
     self.println(s.strip())
 
   def clear(self):
-    self.lines = []
+    self.lines.clear()
     self.draw()
 
 
