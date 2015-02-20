@@ -175,6 +175,11 @@ class Widget:
     """ Draw widget on canvas. """
     raise NotImplementedError
 
+  def clear(self, filler=' '):
+    for y in range(self.size.y):
+      pos = XY(self.pos.x, self.pos.y+y)
+      self.canvas.printf(filler*self.size.x, pos)
+
   def input(self, key):
     if key == 'KEY_UP':
       self.move_focus(-1)
@@ -242,7 +247,6 @@ class VList(Widget):
       pos = pos + XY(0, widget.size.y)
 
 
-# TODO: clipping?
 class String(Widget):
   def __init__(self, text="", **kwargs):
     super().__init__(**kwargs)
@@ -252,6 +256,13 @@ class String(Widget):
   def set_size(self, maxsize):
     assert self.size <= maxsize, "widget does not fit"
     return self.size
+
+  def update(self, newtext):
+    # TODO: suboptimal code, we can clear only the rest of the string
+    if len(newtext) < len(self.text):
+      self.clear()
+    self.text = newtext[:self.size.x]  # TODO: resize or clip with elipsis?
+    self.draw()
 
   def draw(self):
     self.canvas.printf(self.text[:self.size.x], self.pos)
@@ -297,6 +308,7 @@ class Button(String):
 
 
 class Text(Widget):
+  """ Text canvas. """
   minsize = XY(5, 5)
   stretch = horiz
 
@@ -318,8 +330,10 @@ class Text(Widget):
     visible = result[-self.size.y:]
     for i, line in enumerate(visible):
       pos = self.pos + XY(0, i)
-      self.canvas.printf(" "*self.size.x, pos)
+      #self.canvas.printf(" "*self.size.x, pos)
       self.canvas.printf(line, pos)
+      filler = " " * (self.size.x - len(line))
+      self.canvas.printf(filler, pos + XY(len(line),0))
 
   def println(self, s):
     self.lines.append(str(s))
@@ -353,15 +367,13 @@ class Input(Widget):
     self.draw()
 
   def input(self, key):
-    if key == 'KEY_UP':
-      self.move_focus(-1)
-    elif key in ['KEY_DOWN', '\n']:
-      self.move_focus(1)
+    if key.startswith('KEY_'):
+      super().input(key)
     elif key == '\x7f':
       if self.text:
         self.text = self.text[:-1]
         self.draw()
-    if key.isalnum():
+    elif key.isprintable():
       if len(self.text) < self.max_width:
         self.text += key
         self.draw()
