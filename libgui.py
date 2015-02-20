@@ -325,6 +325,10 @@ class Text(Widget):
     self.lines.append(str(s))
     self.draw()
 
+  def write(self, s):
+    """ This one is just to emulate file API. """
+    self.println(s.strip())
+
   def clear(self):
     self.lines = []
     self.draw()
@@ -449,7 +453,7 @@ class Bars(Widget):
     for i, datum in enumerate(self.data):
       pos_x = self.pos.x
       pos_y = self.pos.y + i
-      bar = "█" * math.ceil(width*datum)
+      bar = "█" * math.ceil(width*min(datum,1.0))
       self.canvas.printf(bar, XY(pos_x, pos_y))
 
 
