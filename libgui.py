@@ -471,10 +471,13 @@ class Bars(Widget):
 
   def draw(self):
     width = self.size.x
+    maxval = max(self.data)
+    if not maxval:
+      return
     for i, datum in enumerate(self.data):
       pos_x = self.pos.x
       pos_y = self.pos.y + i
-      bar = "█" * math.ceil(width*min(datum,1.0))
+      bar = "█" * math.ceil(width*datum/maxval)
       self.canvas.printf(bar, XY(pos_x, pos_y))
 
 
