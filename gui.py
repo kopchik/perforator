@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 
-from perf.qemu import NotCountedError
-from threading import Thread
 from collections import defaultdict, deque
-# from queue import Queue
+from threading import Thread
+import curses
 import time
 import sys
+
 from libgui import Border, Bars, Button, Canvas, XY, Text, CMDInput, VList, mywrapper
-import curses
-from config import VMS
+from perf.qemu import NotCountedError
+from useful.log import Log
+from config import VMS, log
+from statistics import mean
+
 
 class Stat:
   def __init__(self):
@@ -52,7 +55,7 @@ def gui(scr):
       Border(
           VList(
               Border(
-                  Bars([0.01, 0.5, 0.7, 1])),
+                  Bars([0.0 for _ in range(8)], id='bars')),
               Border(
                   Text(id='logwin'),
                   label="Logs"),
@@ -60,33 +63,52 @@ def gui(scr):
               Button("QUIT", cb=sys.exit)),
           label="Per-Core Performane")
 
-  # setup callbacks
+  # ON-SREEN LOGGING
   logwin = root['logwin']
-  def cb(s):
+  Log.file = logwin
+  #Log.file = open('/tmp/test', 'wt')
+
+  # CMDLINE
+  def cmdcb(s):
     tstamp = time.strftime("%H:%M:%S", time.localtime())
     logwin.println("{} {}".format(tstamp, s))
     if s == 'quit':
       sys.exit()
-  root['cmdinpt'].cb = cb
-
-  # calculate widget placement and draw widgets
-  root.init(pos=XY(0, 0), maxsize=size, canvas=canvas)
-  root.setup_sigwinch()
-  root.draw()
+  root['cmdinpt'].cb = cmdcb
 
   # top-like bars
   vmstat = defaultdict(Stat)
+  def update_bars():
+    bars = []
+    for vm in VMS:
+      stat = vmstat[vm]
+      if not stat.shared or not stat.isolated:
+        log.error("empty stats for %s" % vm)
+        result = 0.0
+      else:
+        shared = mean(stat.shared)
+        isolated = mean(stat.isolated)
+        result = shared / isolated
+      bars.append(result)
+    root['bars'].update(bars)
+    return bars
+
   collector = Thread(target=collect,
                       args=(VMS, vmstat),
-                      # kwargs={'cb':self.show}
-                      )
+                      kwargs={'cb': update_bars}
+              )
   collector.daemon = True
   collector.start()
 
 
-  # main loop
+  # MAIN LOOP
+  # calculate widget placement and draw widgets
+  root.init(pos=XY(0, 0), maxsize=size, canvas=canvas)
+  root.setup_sigwinch()
+  root.draw()
   if root.cur_focus:
     root.cur_focus.on_focus()
+
   while True:
     try:
       key = scr.getkey()
@@ -99,6 +121,7 @@ def gui(scr):
       break
     if root.cur_focus:
       root.cur_focus.input(key)
+
 
 if __name__ == '__main__':
   gui()
