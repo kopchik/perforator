@@ -6,7 +6,7 @@ import curses
 import time
 import sys
 
-from libgui import Border, Bars, Button, Canvas, XY, Text, CMDInput, VList, mywrapper
+from libgui import Border, Bars, String, Button, Canvas, XY, Text, CMDInput, VList, mywrapper
 from perf.qemu import NotCountedError
 from useful.log import Log
 from config import VMS, log
@@ -44,24 +44,22 @@ def collect(vms, vmstat, measure_time=0.1, interval=0.1, cb=None):
 
 @mywrapper
 def gui(scr):
-  # setup canvas
-  size_y, size_x = scr.getmaxyx()
-  size = XY(size_x, size_y)
-  canvas = Canvas(scr, size)
-  canvas.clear()
-
-  # widget hierarchy
+  # WIDGET HIERARCHY
   root = \
       Border(
           VList(
               Border(
-                  Bars([0.0 for _ in range(8)], id='bars')),
+                VList(
+                  Bars([0.0 for _ in range(8)], id='bars'),
+                  String("...", id='bartext'))),
               Border(
                   Text(id='logwin'),
                   label="Logs"),
-              CMDInput(id='cmdinpt'),
+              Border(
+                  CMDInput(id='cmdinpt'),
+                  label="CMD Input"),
               Button("QUIT", cb=sys.exit)),
-          label="Per-Core Performane")
+          label="Per-VM Performane")  # TODO: label may change
 
   # ON-SREEN LOGGING
   logwin = root['logwin']
@@ -91,6 +89,7 @@ def gui(scr):
         result = shared / isolated
       bars.append(result)
     root['bars'].update(bars)
+    root['bartext'].update("Average IPC: {:.2f}".format(mean(bars)))
     return bars
 
   collector = Thread(target=collect,
@@ -102,6 +101,12 @@ def gui(scr):
 
 
   # MAIN LOOP
+  # setup canvas
+  size_y, size_x = scr.getmaxyx()
+  size = XY(size_x, size_y)
+  canvas = Canvas(scr, size)
+  canvas.clear()
+
   # calculate widget placement and draw widgets
   root.init(pos=XY(0, 0), maxsize=size, canvas=canvas)
   root.setup_sigwinch()
