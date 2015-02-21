@@ -2,15 +2,16 @@
 
 from collections import defaultdict, deque
 from threading import Thread
+from statistics import mean
 import curses
 import time
 import sys
 
 from libgui import Border, Bars, String, Button, Canvas, XY, Text, CMDInput, VList, mywrapper
 from perf.qemu import NotCountedError
+from perf.numa import topology
 from useful.log import Log
 from config import VMS, log
-from statistics import mean
 
 
 class Stat:
@@ -50,7 +51,7 @@ def gui(scr):
           VList(
               Border(
                 VList(
-                  Bars([0.0 for _ in range(8)], id='bars'),
+                  Bars([0.0 for _ in topology.all], id='bars'),
                   String("...", id='bartext'))),
               Border(
                   Text(id='logwin'),
