@@ -358,18 +358,12 @@ class Text(Widget):
 
 
 class Input(Widget):
+  minsize = XY(5, 1)
   can_focus = True
-  min_width = 4
-  max_width = 20
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
     self.text = ""
-
-  def set_size(self, maxsize):
-    width = min(self.max_width, maxsize.x)
-    self.size = XY(width, 1)
-    return self.size
 
   def on_focus(self):
     self.canvas.curs_set(1)
@@ -383,14 +377,12 @@ class Input(Widget):
         self.text = self.text[:-1]
         self.draw()
     elif key.isprintable():
-      if len(self.text) < self.max_width:
+      if len(self.text) < self.size.x:
         self.text += key
         self.draw()
-    # else:
-    #   self.text = "%s %s" %(repr(key),key.isalpha())
 
   def draw(self):
-    self.canvas.printf(' '*self.max_width, self.pos)
+    self.canvas.printf(' '*self.size.x, self.pos)
     self.canvas.printf(self.text, self.pos)
 
 
