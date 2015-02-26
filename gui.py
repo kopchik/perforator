@@ -7,44 +7,74 @@ import curses
 import time
 import sys
 
-from libgui import Border, Bars, String, Button, Canvas, XY, Text, CMDInput, VList, mywrapper
+from libgui import Border, Bars, String, Button, Canvas, XY, Text, CMDInput, VList, mywrapper, loop
 from perf.qemu import NotCountedError
 from perf.numa import topology
 from useful.log import Log
 from config import VMS, log
 
 
+def dictsum(l, key):
+  return sum(e[key] for e in l)
+
+
 class Stat:
+  maxlen = 10
   def __init__(self):
-    self.shared = deque(maxlen=10)
-    self.isolated = deque(maxlen=10)
+    self.shared = deque(maxlen=self.maxlen)
+    self.isolated = deque(maxlen=self.maxlen)
+
+  def get_shared_ipc(self):
+    insns  = dictsum(self.shared, 'instructions')
+    cycles = dictsum(self.shared, 'cycles')
+    if not insns or not cycles:
+      return None
+    return insns / cycles
+
+  def get_isolated_ipc(self):
+    raise NotImplementedError
 
 
-def collect(vms, vmstat, measure_time=0.1, interval=0.1, cb=None):
-  while True:
-    time.sleep(interval)
-    if cb:
-      cb()
-    for vm in vms:
-      try:
-        vm.exclusive()
-        isolated = vm.ipcstat(measure_time)
+class Collector(Thread):
+  """ 1. Profile tasks
+      1. Update bars and stats
+  """
+  def __init__(self, vms, stat, cb):
+    super().__init__()
+    self.stat = stat
+    self.vms = vms
+    self.cb = cb
 
-        time.sleep(interval)
+  def run(self, measure_time=0.1, interval=0.1):
+    stat = self.stat
+    vms = self.vms
+    cb = self.cb
+    while True:
+      time.sleep(interval)
+      totins = 0
+      for vm in vms:
+        try:
+          vm.exclusive()
+          isolated = vm.ipcstat(measure_time, raw=True)
+          stat[vm].isolated.append(isolated)
 
-        vm.shared()
-        shared = vm.ipcstat(measure_time)
+          time.sleep(interval)
 
-        vmstat[vm].isolated.append(isolated)
-        vmstat[vm].shared.append(shared)
-      except NotCountedError:
-        pass
-      finally:
-        vm.shared()
+          vm.shared()
+          shared = vm.ipcstat(measure_time, raw=True)
+          stat[vm].shared.append(shared)
+        except NotCountedError:
+          pass
+        finally:
+          vm.shared()
+      if cb:
+        cb()
 
 
 @mywrapper
 def gui(scr):
+  num_cores = len(topology.all)
+
   # WIDGET HIERARCHY
   root = \
       Border(
@@ -60,7 +90,7 @@ def gui(scr):
                   CMDInput(id='cmdinpt'),
                   label="CMD Input"),
               Button("QUIT", cb=sys.exit)),
-          label="Per-VM Performane")  # TODO: label may change
+          label="Per-VM Performance (%s cores)" % num_cores)  # TODO: label may change
 
   # ON-SREEN LOGGING
   logwin = root['logwin']
@@ -80,23 +110,16 @@ def gui(scr):
   def update_bars():
     bars = []
     for vm in VMS:
-      stat = vmstat[vm]
-      if not stat.shared or not stat.isolated:
+      ipc = vmstat[vm].get_shared_ipc()
+      if not ipc:
         log.error("empty stats for %s" % vm)
-        result = 0.0
-      else:
-        shared = mean(stat.shared)
-        isolated = mean(stat.isolated)
-        result = shared / isolated
-      bars.append(result)
+        ipc = 0.0
+      bars.append(ipc)
     root['bars'].update(bars)
     root['bartext'].update("Average IPC: {:.2f}".format(mean(bars)))
     return bars
 
-  collector = Thread(target=collect,
-                      args=(VMS, vmstat),
-                      kwargs={'cb': update_bars}
-              )
+  collector = Collector(vms=VMS, stat=vmstat, cb=update_bars)
   collector.daemon = True
   collector.start()
 
@@ -115,18 +138,7 @@ def gui(scr):
   if root.cur_focus:
     root.cur_focus.on_focus()
 
-  while True:
-    try:
-      key = scr.getkey()
-    except KeyboardInterrupt:
-      break
-    except curses.error:
-      # this is very likely to caused by terminal resize O_o
-      continue
-    if key == '\x1b':
-      break
-    if root.cur_focus:
-      root.cur_focus.input(key)
+  loop(scr, root)
 
 
 if __name__ == '__main__':
