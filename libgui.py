@@ -475,3 +475,22 @@ class Bars(Widget):
 
 def mywrapper(f):
   return lambda *args, **kwargs: curses.wrapper(f, *args, **kwargs)
+
+
+def loop(scr, root):
+  """ scr -- screen
+      root -- root widget
+  """
+  while True:
+    try:
+      key = scr.getkey()
+    except KeyboardInterrupt:
+      break
+    except curses.error:
+      # this is very likely to caused by terminal resize O_o
+      continue
+    if key == '\x1b':
+      break
+    if root.cur_focus:
+      root.cur_focus.input(key)
+
