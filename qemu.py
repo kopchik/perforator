@@ -9,6 +9,7 @@ from socket import socketpair
 from threading import current_thread
 from collections import defaultdict
 from statistics import mean
+from os import unlink
 import shlex
 
 from config import VMS as vms  #do not remove, this triggers population of config
@@ -17,9 +18,8 @@ from config import VMS as vms  #do not remove, this triggers population of confi
 PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
 
 
-def ipcistat(vm, time, interval, skip):
+def ipcistat(vm, time, interval, events, skip=0):
   nc = 0  # num of not counted events
-  events = events=['instructions', 'cycles']
   CMD = "{perf} kvm stat -e {events} -o {out} -x, -I {interval} -p {pid} sleep {time}"
   out = "/tmp/perf_%s_%s" % (vm.bname, current_thread().ident)
   cmd = CMD.format(perf=PERF, pid=vm.pid, events=",".join(events), \
@@ -30,7 +30,7 @@ def ipcistat(vm, time, interval, skip):
     raise NotCountedError
   with open(out) as fd:
     result = fd.read()
-    os.unlink(out)
+  unlink(out)
 
   r = defaultdict(list)
   for s in result.splitlines():
