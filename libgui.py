@@ -7,6 +7,10 @@ import signal
 import math
 
 from useful.timer import Timer
+from blessings import Terminal
+
+
+t = Terminal()
 
 
 def splitline(line, size):
@@ -444,10 +448,13 @@ class Border(Widget):
 
 
 class Bars(Widget):
-  def __init__(self, data=[0], **kwargs):
+  def __init__(self, data=[0], maxval=None, showvals=True, **kwargs):
+    assert isinstance(data, list)
     super().__init__(**kwargs)
     self.num = len(data)
     self.data = data
+    self.maxval = maxval
+    self.showvals = showvals
 
   def set_size(self, maxsize):
     size_x = maxsize.x
@@ -458,19 +465,32 @@ class Bars(Widget):
     return self.size
 
   def update(self, data):
+    assert isinstance(data, list)
     self.data = data
     self.draw()
 
   def draw(self):
     width = self.size.x
-    maxval = max(self.data)
+    if self.maxval:
+      maxval = self.maxval
+    else:
+      maxval = max(self.data)
     if not maxval:
       return
     for i, datum in enumerate(self.data):
       pos_x = self.pos.x
       pos_y = self.pos.y + i
-      bar = "█" * math.ceil(width*datum/maxval)
-      self.canvas.printf(bar, XY(pos_x, pos_y))
+      length = math.ceil(width*min(1,datum/maxval))
+      s = "{:.2f}".format(datum)
+      s += "█" * (length - len(s))
+      s += " " * (self.size.x - len(s))
+      with t.location(pos_x, pos_y):
+        print(t.red+t.inverse+s[:length]+t.normal+s[length:],end='')
+      import sys
+      sys.stdout.flush()
+      #bar = "█" * length
+      #self.canvas.printf(bar, XY(pos_x, pos_y))
+      #self.canvas.printf(' '*(self.size.x-length), XY(pos_x+length, pos_y))
 
 
 def mywrapper(f):
