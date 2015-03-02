@@ -2,6 +2,7 @@
 
 from functools import total_ordering
 from collections import deque
+import termios
 import signal
 import math
 import tty
@@ -494,6 +495,7 @@ class Bars(Widget):
 
 SPECIAL = Enum("ESC BSPACE ENTER CTRLC".split())
 ARROW = Enum("UP DOWN LEFT RIGHT".split())
+# from string.printable
 ascii = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!'  \
         '"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c'
 ASCII = Enum(ascii.split())
@@ -538,11 +540,13 @@ def myinput(timeout=0):
 def mywrapper(f):
   def wrapped(*args, **kwargs):
     with t.fullscreen():
-      # stdout = os.fdopen(stdin.fileno(), 'wb', 0)
-      tty.setraw(sys.stdin.fileno())
-      r = f()
-      tty.setcbreak(sys.stdin.fileno())
-      return r
+      fd = sys.stdin.fileno()
+      old_settings = termios.tcgetattr(fd)
+      tty.setraw(fd)
+      try:
+        return f()
+      finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
   return wrapped
 
 
