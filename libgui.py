@@ -2,13 +2,14 @@
 
 from functools import total_ordering
 from collections import deque
-import curses
 import signal
 import math
+import tty
 import sys
 import os
 
 from useful.timer import Timer
+from useful.myenum import Enum
 from blessings import Terminal
 
 
@@ -68,37 +69,38 @@ class XY:
 
 
 class Canvas:
-  def __init__(self, scr=None, size=XY(80, 24)):
-    self._scr = scr
-    self._scr.immedok(1)
-    self.size = size
-    self.pos = XY(0, 0)
+  size = None
+  pos  = XY(0, 0)
+
+  def __init__(self):
+    self.resize()
 
   def curs_set(self, lvl):
     """ Set cursor visibility. """
-    curses.curs_set(lvl)
+    # TODO
+    pass
 
   def set_pos(self, pos=None):
     assert XY(0, 0) <= pos < self.size
-    if pos:
-      self.pos = pos
-    self._scr.move(self.pos.y, self.pos.x)
+    self.pos = pos
+    raw = t.move(self.pos.y, self.pos.x)
+    print(raw, end='')
 
   def resize(self):
-    curses.endwin()
-    curses.initscr()
-    size_y, size_x = self._scr.getmaxyx()
-    self.size = XY(size_x, size_y)
+    self.size = XY(t.width, t.height)
     return self.size
 
   def clear(self):
-    self._scr.erase()
+    print(t.clear)
 
-  def printf(self, text, pos=None):
-    text = str(text)
-    if pos:
-      self.set_pos(pos)
-    self._scr.addstr(text)
+  def printf(self, text, pos, movecur=False):
+    if movecur:
+        print(t.move(pos.y, pos.x), end='')
+        print(str(text), end='')
+    else:
+      with t.location(pos.x, pos.y):
+        print(str(text), end='')
+    sys.stdout.flush()
 
 
 fixed = 0
@@ -136,12 +138,14 @@ class Widget:
       if not Widget.cur_focus:
         Widget.cur_focus = self
 
-  # TODO: better name
-  def init(self, pos, maxsize, canvas=None):
-    self.set_size(maxsize)
-    self.set_pos(pos)
-    if canvas:
-      self.set_canvas(canvas)
+  def initroot(self, canvas):
+    self.set_canvas(canvas)
+    self.set_size(canvas.size)
+    self.set_pos(XY(0,0))
+    self.setup_sigwinch()
+    self.draw()
+    if self.cur_focus:
+      self.cur_focus.on_focus()
 
   def move_focus(self, inc=1):
     """ Switch focus to next widget. """
@@ -195,15 +199,15 @@ class Widget:
       self.canvas.printf(filler*self.size.x, pos)
 
   def input(self, key):
-    if key == 'KEY_UP':
+    if key == ARROW.UP:
       self.move_focus(-1)
-    elif key in ['KEY_DOWN', '\n']:
+    elif key in [ARROW.DOWN, '\n']:
       self.move_focus(1)
 
   def on_sigwinch(self, sig, frame):
     size = self.canvas.resize()
     self.canvas.clear()
-    self.init(self.pos, size)
+    self.initroot(self.canvas)
     self.draw()
     if self.cur_focus:
       self.cur_focus.on_focus()
@@ -348,7 +352,7 @@ class Text(Widget):
       #self.canvas.printf(" "*self.size.x, pos)
       self.canvas.printf(line, pos)
       filler = " " * (self.size.x - len(line))
-      self.canvas.printf(filler, pos + XY(len(line),0))
+      self.canvas.printf(filler, pos + XY(len(line), 0))
 
   def println(self, s):
     self.lines.append(str(s))
@@ -372,13 +376,12 @@ class Input(Widget):
     self.text = ""
 
   def on_focus(self):
-    self.canvas.curs_set(1)
     self.draw()
 
   def input(self, key):
-    if key.startswith('KEY_'):
+    if key in ARROW:
       super().input(key)
-    elif key == '\x7f':
+    elif key == SPECIAL.BSPACE:
       if self.text:
         self.text = self.text[:-1]
         self.draw()
@@ -389,7 +392,7 @@ class Input(Widget):
 
   def draw(self):
     self.canvas.printf(' '*self.size.x, self.pos)
-    self.canvas.printf(self.text, self.pos)
+    self.canvas.printf(self.text, self.pos, movecur=True)
 
 
 class CMDInput(Input):
@@ -482,37 +485,78 @@ class Bars(Widget):
     for i, datum in enumerate(self.data):
       pos_x = self.pos.x
       pos_y = self.pos.y + i
-      length = math.ceil(width*min(1,datum/maxval))
+      length = math.ceil(width*min(1, datum/maxval))
       s = "{:.2f}".format(datum)
       s += "█" * (length - len(s))
       s += " " * (self.size.x - len(s))
-      with t.location(pos_x, pos_y):
-        print(t.red+t.inverse+s[:length]+t.normal+s[length:],end='')
-      #bar = "█" * length
-      #self.canvas.printf(bar, XY(pos_x, pos_y))
-      #self.canvas.printf(' '*(self.size.x-length), XY(pos_x+length, pos_y))
+      self.canvas.printf(t.red+t.inverse+s[:length]+t.normal+s[length:], XY(pos_x, pos_y))
+
+
+SPECIAL = Enum("ESC BSPACE ENTER CTRLC".split())
+ARROW = Enum("UP DOWN LEFT RIGHT".split())
+ascii = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!'  \
+        '"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c'
+ASCII = Enum(ascii.split())
+
+
+def myinput(timeout=0):
+  stdin = sys.stdin
+  special = False
+  while True:
+    try:
+      ch = os.read(stdin.fileno(), 1)
+    except InterruptedError:  # "[Errno 4] Interrupted system call"
+      continue
+    ch = ch.decode()
+    if ch == '\x1b':
+      if special:
+        yield SPECIAL.ESC
+      else:
+        special = True
+    elif ch == '[':
+      if not special:
+        yield ch
+    else:
+      if special:
+        special = False
+        if   ch == 'A': yield ARROW.UP
+        elif ch == 'B': yield ARROW.DOWN
+        elif ch == 'C': yield ARROW.RIGHT
+        elif ch == 'D': yield ARROW.LEFT
+      else:
+        if   ch == '\x7f':
+          yield SPECIAL.BSPACE
+        elif ch == '\x03':
+          yield SPECIAL.CTRLC
+        elif ch == '\r':
+          #yield SPECIAL.ENTER
+          yield '\n'
+        else:
+          yield ch
 
 
 def mywrapper(f):
-  return lambda *args, **kwargs: curses.wrapper(f, *args, **kwargs)
+  def wrapped(*args, **kwargs):
+    with t.fullscreen():
+      # stdout = os.fdopen(stdin.fileno(), 'wb', 0)
+      tty.setraw(sys.stdin.fileno())
+      r = f()
+      tty.setcbreak(sys.stdin.fileno())
+      return r
+  return wrapped
 
 
-def loop(root):
-  """ scr -- screen
-      root -- root widget
-  """
-  sys.stdout.flush()
-  sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-  while True:
-    try:
-      key = scr.getkey()
-    except KeyboardInterrupt:
-      break
-    except curses.error:
-      # this is very likely to caused by terminal resize O_o
+def loop(root, clear=True):
+  canvas = Canvas()
+  if clear:
+    canvas.clear()
+  root.initroot(canvas)
+
+  for key in myinput():
+    if key == SPECIAL.CTRLC:
+      os.kill(0, signal.SIGINT)
       continue
-    if key == '\x1b':
-      break
+    #canvas.clear()
+    #print(key, repr(key))
     if root.cur_focus:
       root.cur_focus.input(key)
-

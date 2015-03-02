@@ -2,9 +2,8 @@
 
 from collections import defaultdict, deque
 from threading import Thread, Event
-from statistics import mean
 from subprocess import DEVNULL
-import curses
+from statistics import mean
 import time
 import sys
 
@@ -83,7 +82,7 @@ class Collector(Thread):
 
 
 @mywrapper
-def gui(scr):
+def gui():
   num_cores = len(topology.all)
   prof_ev = Event()
   prof_ev.set()
@@ -177,20 +176,7 @@ def gui(scr):
 
 
   # MAIN LOOP
-  # setup canvas
-  size_y, size_x = scr.getmaxyx()
-  size = XY(size_x, size_y)
-  canvas = Canvas(scr, size)
-  canvas.clear()
-
-  # calculate widget placement and draw widgets
-  root.init(pos=XY(0, 0), maxsize=size, canvas=canvas)
-  root.setup_sigwinch()
-  root.draw()
-  if root.cur_focus:
-    root.cur_focus.on_focus()
-
-  loop(scr, root)
+  loop(root)
 
 
 if __name__ == '__main__':
