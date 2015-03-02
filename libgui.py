@@ -5,6 +5,8 @@ from collections import deque
 import curses
 import signal
 import math
+import sys
+import os
 
 from useful.timer import Timer
 from blessings import Terminal
@@ -486,8 +488,6 @@ class Bars(Widget):
       s += " " * (self.size.x - len(s))
       with t.location(pos_x, pos_y):
         print(t.red+t.inverse+s[:length]+t.normal+s[length:],end='')
-      import sys
-      sys.stdout.flush()
       #bar = "█" * length
       #self.canvas.printf(bar, XY(pos_x, pos_y))
       #self.canvas.printf(' '*(self.size.x-length), XY(pos_x+length, pos_y))
@@ -497,10 +497,12 @@ def mywrapper(f):
   return lambda *args, **kwargs: curses.wrapper(f, *args, **kwargs)
 
 
-def loop(scr, root):
+def loop(root):
   """ scr -- screen
       root -- root widget
   """
+  sys.stdout.flush()
+  sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
   while True:
     try:
       key = scr.getkey()
