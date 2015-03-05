@@ -16,6 +16,15 @@ from blessings import Terminal
 
 t = Terminal()
 
+class Range:
+  def __init__(self, min, max):
+    assert min <= max
+    self.min = min
+    self.max = max
+
+  def __contains__(self, other):
+    return self.min <= other <= self.max
+
 
 def splitline(line, size):
   """ Chop line into chunks of specified size. """
@@ -139,7 +148,9 @@ class Widget:
       if not Widget.cur_focus:
         Widget.cur_focus = self
 
-  def initroot(self, canvas):
+  def initroot(self, canvas=None):
+    if not canvas:
+      canvas = Canvas()
     self.set_canvas(canvas)
     self.set_size(canvas.size)
     self.set_pos(XY(0,0))
@@ -453,6 +464,46 @@ class Border(Widget):
     self.children[0].draw()
 
 
+class Bar(Widget):
+  stretch = horiz
+  def __init__(self, value=0, fmt="{}", color=t.green,
+               r=Range(0, 1), overflow=t.red+t.bold, **kwargs):
+    super().__init__(**kwargs)
+    self.fmt = fmt
+    self.value = value
+    self.color = color
+    self.range = r
+    self.overflow = overflow
+
+  def set_size(self, maxsize):
+    assert maxsize.y >= 1, "not enough screen space"
+    self.size = XY(maxsize.x, 1)
+    return self.size
+
+  def update(self, value):
+    self.value = value
+    self.draw()
+
+  def draw(self):
+    width = self.size.x
+    value = self.value
+    pos_x = self.pos.x
+    pos_y = self.pos.y
+    r = self.range
+    # length = math.ceil(width*min(1, datum/maxval))
+    percent = (self.value - r.min) / (r.max - r.min)
+    percent = min(percent, 1)
+    percent = max(percent, 0)
+    length = math.ceil(width*percent)
+    s = self.fmt.format(value)
+    s += "█" * (length - len(s))
+    s += " " * (self.size.x - len(s))
+    color = self.color if value in self.range else self.overflow
+    self.canvas.printf(color+t.inverse+s[:length]+
+                       t.normal+s[length:], XY(pos_x, pos_y))
+
+
+
 class Bars(Widget):
   def __init__(self, data=[0], maxval=None, showvals=True, **kwargs):
     assert isinstance(data, list)
@@ -551,10 +602,9 @@ def mywrapper(f):
 
 
 def loop(root, clear=True):
-  canvas = Canvas()
+  root.initroot()
   if clear:
-    canvas.clear()
-  root.initroot(canvas)
+    root.canvas.clear()
 
   for key in myinput():
     if key == SPECIAL.CTRLC:
