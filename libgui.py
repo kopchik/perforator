@@ -2,6 +2,7 @@
 
 from functools import total_ordering
 from collections import deque
+from select import select
 import termios
 import signal
 import math
@@ -558,6 +559,10 @@ def myinput(timeout=0):
   special = False
   while True:
     try:
+      r, _, _ = select([stdin], [], [], timeout)
+      if not r:
+        yield None
+        continue
       ch = os.read(stdin.fileno(), 1)
     except InterruptedError:  # "[Errno 4] Interrupted system call"
       continue
@@ -581,7 +586,8 @@ def myinput(timeout=0):
         if   ch == '\x7f':
           yield SPECIAL.BSPACE
         elif ch == '\x03':
-          yield SPECIAL.CTRLC
+          os.kill(0, signal.SIGINT)
+          # yield SPECIAL.CTRLC
         elif ch == '\r':
           # yield SPECIAL.ENTER
           yield '\n'
@@ -609,8 +615,8 @@ def loop(root, clear=True):
     root.canvas.clear()
 
   for key in myinput():
-    if key == SPECIAL.CTRLC:
-      os.kill(0, signal.SIGINT)
-      continue
+    #if key == SPECIAL.CTRLC:
+    #  os.kill(0, signal.SIGINT)
+    #  continue
     if root.cur_focus:
       root.cur_focus.input(key)
