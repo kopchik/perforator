@@ -570,7 +570,7 @@ ascii = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!'  \
 ASCII = Enum(ascii.split())
 
 
-def myinput(timeout=0):
+def myinput(timeout=None):
   stdin = sys.stdin
   special = False
   while True:
