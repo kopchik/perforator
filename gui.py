@@ -30,6 +30,21 @@ class Stat:
   def __init__(self):
     self.shared = deque(maxlen=self.maxlen)
     self.isolated = deque(maxlen=self.maxlen)
+    self.cpu = deque(maxlen=self.maxlen)
+    self.last_check = 0
+    self.last_cpu_time = 0
+
+  def get_cpu(self, pid):
+    fd = open('/proc/%s/schedstat' % pid, 'rt')
+    now = time.time()
+    cpu,*c = readfd(fd, conv=int)
+    dt = now - self.last_check
+    dcpu = cpu - self.last_cpu_time
+    percent = dcpu / dt / 1000
+    self.last_cpu_time = cpu
+    self.last_check = now
+    self.cpu.append(percent)
+    return percent
 
   def get_shared_ipc(self):
     insns  = dictsum(self.shared, 'instructions')
@@ -38,8 +53,6 @@ class Stat:
       return None
     return insns / cycles
 
-  def get_isolated_ipc(self):
-    raise NotImplementedError
 
 
 class Collector(Thread):
@@ -53,7 +66,7 @@ class Collector(Thread):
     self.cb = cb
     self.ev = ev
 
-  def run(self, measure_time=0.1, interval=0.1):
+  def run(self, measure_time=0.1, interval=0.9):
     stat = self.stat
     vms  = self.vms
     cb   = self.cb
@@ -63,6 +76,7 @@ class Collector(Thread):
       time.sleep(interval)
       totins = 0
       for vm in vms:
+        stat[vm].get_cpu(vm.pid)
         try:
           vm.exclusive()
           isolated = vm.ipcstat(measure_time, raw=True)
@@ -96,7 +110,7 @@ def gui():
                   label="CPU Load"),
               Border(
                 VList(
-                  Bars([0.0 for _ in topology.all], id='bars'),
+                  Bars([0.0 for _ in range(num_cores)], id='bars'),
                   String("...", id='bartext'))),
               Border(
                   Text(id='logwin'),
