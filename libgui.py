@@ -273,10 +273,25 @@ class VList(Widget):
     return self.size
 
   def draw(self):
-    pos = self.pos
     for widget in self.children:
       widget.draw()
-      pos = pos + XY(0, widget.size.y)
+
+
+class HList(VList):
+  def set_size(self, maxsize):
+    num = len(self.children)
+    maxx = maxsize.x // len(self.children)
+    for child in self.children:
+      child_maxsize=XY(maxx, maxsize.y)
+      child.set_size(child_maxsize)
+    self.size = XY(maxsize.x, max(child.size.y for child in self.children))
+    return self.size
+
+  def set_pos(self, pos):
+    self.pos = pos
+    for i, child in enumerate(self.children):
+      child_pos = XY(pos.x + self.size.x // len(self.children) * i, pos.y)
+      child.set_pos(child_pos)
 
 
 class String(Widget):
