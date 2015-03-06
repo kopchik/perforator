@@ -219,7 +219,7 @@ class Widget:
       self.move_focus(1)
 
   def on_sigwinch(self, sig, frame):
-    size = self.canvas.resize()
+    self.canvas.resize()
     self.canvas.clear()
     self.initroot(self.canvas)
     self.draw()
@@ -469,7 +469,7 @@ class Border(Widget):
 class Bar(Widget):
   stretch = horiz
 
-  def __init__(self, value=0, fmt="{}", color=t.green,
+  def __init__(self, value=0, fmt="{:.3f}", color=t.green,
                r=Range(0, 1), overflow=t.red+t.bold, **kwargs):
     super().__init__(**kwargs)
     self.fmt = fmt
