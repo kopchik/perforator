@@ -514,10 +514,11 @@ class Bar(Widget):
     percent = max(percent, 0)
     length = math.ceil(width*percent)
     s = self.fmt.format(value)
-    s += "█" * (length - len(s))
+    label_len = len(s)
+    # s += "█" * (length - len(s))
     s += " " * (self.size.x - len(s))
     color = self.color if value in self.range else self.overflow
-    self.canvas.printf(color + t.inverse + s[:length] +
+    self.canvas.printf(color + t.reverse + s[:length] +
                        t.normal + s[length:], XY(pos_x, pos_y))
 
 
