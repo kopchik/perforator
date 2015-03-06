@@ -158,7 +158,7 @@ def gui():
   root['cmdinpt'].cb = cmdcb
 
   # top-like bars
-  vmstat = defaultdict(Stat)
+  vmstat = {vm:Stat() for vm in VMS}
   def update_bars():
     bars = []
     for vm in VMS:
