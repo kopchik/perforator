@@ -16,6 +16,7 @@ from blessings import Terminal
 
 t = Terminal()
 
+
 class Range:
   def __init__(self, min, max):
     assert min <= max
@@ -153,7 +154,7 @@ class Widget:
       canvas = Canvas()
     self.set_canvas(canvas)
     self.set_size(canvas.size)
-    self.set_pos(XY(0,0))
+    self.set_pos(XY(0, 0))
     self.setup_sigwinch()
     self.draw()
     if self.cur_focus:
@@ -361,7 +362,7 @@ class Text(Widget):
     visible = result[-self.size.y:]
     for i, line in enumerate(visible):
       pos = self.pos + XY(0, i)
-      #self.canvas.printf(" "*self.size.x, pos)
+      # self.canvas.printf(" "*self.size.x, pos)
       self.canvas.printf(line, pos)
       filler = " " * (self.size.x - len(line))
       self.canvas.printf(filler, pos + XY(len(line), 0))
@@ -466,6 +467,7 @@ class Border(Widget):
 
 class Bar(Widget):
   stretch = horiz
+
   def __init__(self, value=0, fmt="{}", color=t.green,
                r=Range(0, 1), overflow=t.red+t.bold, **kwargs):
     super().__init__(**kwargs)
@@ -499,9 +501,8 @@ class Bar(Widget):
     s += "█" * (length - len(s))
     s += " " * (self.size.x - len(s))
     color = self.color if value in self.range else self.overflow
-    self.canvas.printf(color+t.inverse+s[:length]+
-                       t.normal+s[length:], XY(pos_x, pos_y))
-
+    self.canvas.printf(color + t.inverse + s[:length] +
+                       t.normal + s[length:], XY(pos_x, pos_y))
 
 
 class Bars(Widget):
@@ -582,7 +583,7 @@ def myinput(timeout=0):
         elif ch == '\x03':
           yield SPECIAL.CTRLC
         elif ch == '\r':
-          #yield SPECIAL.ENTER
+          # yield SPECIAL.ENTER
           yield '\n'
         else:
           yield ch
@@ -597,7 +598,8 @@ def mywrapper(f):
       try:
         return f()
       finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        termios.tcsetattr(fd, termios.TCSADRAIN,
+                          old_settings)
   return wrapped
 
 
@@ -610,7 +612,5 @@ def loop(root, clear=True):
     if key == SPECIAL.CTRLC:
       os.kill(0, signal.SIGINT)
       continue
-    #canvas.clear()
-    #print(key, repr(key))
     if root.cur_focus:
       root.cur_focus.input(key)
