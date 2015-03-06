@@ -150,9 +150,11 @@ class Widget:
       if not Widget.cur_focus:
         Widget.cur_focus = self
 
-  def initroot(self, canvas=None):
+  def initroot(self, canvas=None, clear=False):
     if not canvas:
       canvas = Canvas()
+    if clear:
+      canvas.clear()
     self.set_canvas(canvas)
     self.set_size(canvas.size)
     self.set_pos(XY(0, 0))
@@ -626,9 +628,7 @@ def mywrapper(f):
 
 
 def loop(root, clear=True):
-  root.initroot()
-  if clear:
-    root.canvas.clear()
+  root.initroot(clear=clear)
 
   for key in myinput():
     #if key == SPECIAL.CTRLC:
