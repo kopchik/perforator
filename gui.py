@@ -7,18 +7,18 @@ from statistics import mean
 import time
 import sys
 
-from libgui import Border, Bars, String, Button, Canvas, XY, Text, CMDInput, VList, mywrapper, loop
+import psutil
+
+from libgui import Border, Bars, Bar, String, \
+  Button, Canvas, XY, Text, CMDInput, VList, \
+  HList, Range, mywrapper, loop, t
 from perf.qemu import NotCountedError
 from perf.numa import topology
+
+from useful.small import readfd, nsplit
 from useful.log import Log
+
 from config import VMS, log, basis as bench_cmd
-
-
-def readfd(fd, seek0=True, conv=float, sep=None):
-  if seek0:
-    fd.seek(0)
-  raw = fd.read()
-  return [conv(r) for r in raw.split(sep)]
 
 
 def dictsum(l, key):
@@ -26,25 +26,21 @@ def dictsum(l, key):
 
 
 class Stat:
-  maxlen = 10
-  def __init__(self):
+  maxlen = 1
+
+  def __init__(self, cpubar, ipcbar, pid):
     self.shared = deque(maxlen=self.maxlen)
     self.isolated = deque(maxlen=self.maxlen)
     self.cpu = deque(maxlen=self.maxlen)
-    self.last_check = 0
-    self.last_cpu_time = 0
+    self.cpubar = cpubar
+    self.ipcbar = ipcbar
+    self.process = psutil.Process(pid)
 
-  def get_cpu(self, pid):
-    fd = open('/proc/%s/schedstat' % pid, 'rt')
-    now = time.time()
-    cpu,*c = readfd(fd, conv=int)
-    dt = now - self.last_check
-    dcpu = cpu - self.last_cpu_time
-    percent = dcpu / dt / 1000
-    self.last_cpu_time = cpu
-    self.last_check = now
-    self.cpu.append(percent)
-    return percent
+  def update_bars(self):
+    ipc = self.get_shared_ipc()
+    if ipc:
+      self.ipcbar.update(ipc)
+    self.cpubar.update(mean(self.cpu))
 
   def get_shared_ipc(self):
     insns  = dictsum(self.shared, 'instructions')
@@ -54,45 +50,46 @@ class Stat:
     return insns / cycles
 
 
-
 class Collector(Thread):
   """ 1. Profile tasks
       1. Update bars and stats
   """
-  def __init__(self, vms, stat, ev, cb):
+  def __init__(self, vms, stat, ev):
     super().__init__()
     self.stat = stat
     self.vms = vms
-    self.cb = cb
     self.ev = ev
 
   def run(self, measure_time=0.1, interval=0.9):
     stat = self.stat
     vms  = self.vms
-    cb   = self.cb
     ev   = self.ev
     while True:
       ev.wait()
       time.sleep(interval)
       totins = 0
       for vm in vms:
-        stat[vm].get_cpu(vm.pid)
+        # measure CPU
+        vmstat = stat[vm]
+        cpu = vmstat.process.cpu_percent()
+        vmstat.cpu.append(cpu)
+
         try:
-          vm.exclusive()
+          # TODO! vm.exclusive()
           isolated = vm.ipcstat(measure_time, raw=True)
-          stat[vm].isolated.append(isolated)
+          vmstat.isolated.append(isolated)
 
           time.sleep(interval)
 
-          vm.shared()
+          # TODO! vm.shared()
           shared = vm.ipcstat(measure_time, raw=True)
-          stat[vm].shared.append(shared)
+          vmstat.shared.append(shared)
         except NotCountedError:
           pass
         finally:
           vm.shared()
-      if cb:
-        cb()
+      for st in stat.values():
+        st.update_bars()
 
 
 @mywrapper
@@ -101,17 +98,26 @@ def gui():
   prof_ev = Event()
   prof_ev.set()
 
+  # top-like bars
+  stat = {}  # {vm:Stat() for vm in VMS}
+  bars = []
+  for vm in VMS:
+    cpubar = Bar(fmt="CPU: {:.1f}%")
+    ipcbar = Bar(fmt="IPC: {:.2f}", r=Range(0, 100), color=t.white, overflow=t.green)
+    stat[vm] = Stat(cpubar, ipcbar, vm.pid)
+    bars.append(cpubar)
+    bars.append(ipcbar)
+  barsWidget = HList(*[VList(*piece) for piece in nsplit(bars, 2)], id='bars')
+
   # WIDGET HIERARCHY
   root = \
       Border(
           VList(
               Border(
-                  Bars([0.0], maxval=1.0, id='cpuload'),
-                  label="CPU Load"),
-              Border(
-                VList(
-                  Bars([0.0 for _ in range(num_cores)], id='bars'),
-                  String("...", id='bartext'))),
+                  Bar(id='cpuload', fmt="{:.1%}"),
+                  label="CPU Load (avg. of all cores)"),
+              Border(barsWidget,
+                     label="Per-VM load and efficiency"),
               Border(
                   Text(id='logwin'),
                   label="Logs"),
@@ -137,8 +143,8 @@ def gui():
         load_time = tot_time - (idle - old_idle)
         cpu_load = load_time / tot_time
         old_uptime, old_idle = uptime, idle
-        log.info("cpu load: {:.1%}".format(cpu_load))
-        root['cpuload'].update([cpu_load])
+        #log.info("cpu load: {:.1%}".format(cpu_load))
+        root['cpuload'].update(cpu_load)
   cputhread = Thread(target=cpuload, daemon=True)
   cputhread.start()
 
@@ -168,23 +174,11 @@ def gui():
     elif s == 'pstart':
       prof_ev.set()
     elif s == 'redraw':
+      root.canvas.clear()
       root.draw()
   root['cmdinpt'].cb = cmdcb
 
-  # top-like bars
-  vmstat = {vm:Stat() for vm in VMS}
-  def update_bars():
-    bars = []
-    for vm in VMS:
-      ipc = vmstat[vm].get_shared_ipc()
-      if not ipc:
-        log.error("empty stats for %s" % vm)
-        ipc = 0.0
-      bars.append(ipc)
-    root['bars'].update(bars)
-    root['bartext'].update("Average IPC: {:.2f}".format(mean(bars)))
-    return bars
-  collector = Collector(vms=VMS, stat=vmstat, ev=prof_ev, cb=update_bars)
+  collector = Collector(vms=VMS, stat=stat, ev=prof_ev)
   collector.daemon = True
   collector.start()
 
