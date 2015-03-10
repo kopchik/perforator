@@ -102,8 +102,8 @@ def gui():
   stat = {}  # {vm:Stat() for vm in VMS}
   bars = []
   for vm in VMS:
-    cpubar = Bar(fmt="CPU: {:.1f}%")
-    ipcbar = Bar(fmt="IPC: {:.2f}", r=Range(0, 100), color=t.white, overflow=t.green)
+    cpubar = Bar(fmt="CPU: {:.1f}%", r=Range(0, 100))
+    ipcbar = Bar(fmt="IPC: {:.2f}", color=t.white, overflow=t.green)
     stat[vm] = Stat(cpubar, ipcbar, vm.pid)
     bars.append(cpubar)
     bars.append(ipcbar)
