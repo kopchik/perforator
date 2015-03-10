@@ -14,8 +14,10 @@ from useful.timer import Timer
 from useful.myenum import Enum
 from blessings import Terminal
 
-
 t = Terminal()
+
+# from useful.log import Log
+# log = Log("libgui")
 
 
 class Range:
@@ -125,7 +127,7 @@ class Widget:
   pos = XY(0, 0)      # position
   size = XY(0, 0)     # actual widget size calculated in set_size
   minsize = XY(1, 1)  # minimum size for stretching widgets
-  stretch = horiz     # widget size policy
+  stretch = fixed     # widget size policy
   id = None           # ID that can be selected
   all_ids = []        # used for checking ID uniqueness
   focus_order = []
@@ -245,8 +247,7 @@ class Widget:
 
   def __repr__(self):
     cls = self.__class__.__name__
-    if self.id:
-      id_ = self.id if self.id else id(self)
+    id_ = self.id if self.id else id(self)
     return "<{}@{:x}>".format(cls, id_)
 
 
@@ -263,15 +264,30 @@ class VList(Widget):
       size_y += child.size.y
 
   def set_size(self, maxsize):
+    rigid, flexible = [], []
+    for child in self.children:
+      if child.stretch in [fixed, horiz]:
+        rigid.append(child)
+      else:
+        flexible.append(child)
+
     size_x, size_y = 0, 0
     size = XY(size_x, size_y)
-    for child in self.children:
+    for child in rigid:
       child_maxsize = XY(maxsize.x, maxsize.y-size.y)
       child.set_size(child_maxsize)
       size_x = max(size_x, child.size.x)
       size_y += child.size.y
       size = XY(size_x, size_y)
+    flex_ybudget = maxsize.y - size.y
+    for child in flexible:
+      child_maxsize = XY(maxsize.x, flex_ybudget//len(flexible))
+      child.set_size(child_maxsize)
+      size_x = max(size_x, child.size.x)
+      size_y += child.size.y
+      size = XY(size_x, size_y)
     self.size = size
+
     return self.size
 
   def draw(self):
@@ -353,6 +369,7 @@ class Button(String):
 class Text(Widget):
   """ Text canvas. """
   minsize = XY(5, 5)
+  stretch = both
 
   def __init__(self, **kwargs):
     super().__init__(**kwargs)
@@ -400,6 +417,7 @@ class Text(Widget):
 
 class Input(Widget):
   minsize = XY(5, 1)
+  stretch = horiz
   can_focus = True
 
   def __init__(self, **kwargs):
@@ -448,6 +466,7 @@ class Border(Widget):
     assert len(self.children) == 1,  \
         "border fits only one child"
     self.label = label
+    self.stretch = self.children[0].stretch
 
   def set_size(self, maxsize):
     label = self.label
