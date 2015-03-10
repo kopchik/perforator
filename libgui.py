@@ -339,6 +339,7 @@ class Button(String):
 
   def on_focus(self):
     super().on_focus()
+    self.canvas.set_pos(self.pos)
     self.draw()
     self.canvas.curs_set(0)
 
