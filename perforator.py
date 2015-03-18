@@ -271,9 +271,6 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
 
   return Struct(standard=standard, withskip=withskip)
 
-def top(vms):
-  import gui
-  gui.top(vms)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
