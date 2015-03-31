@@ -28,10 +28,10 @@ VMS = []
 # HOST-SPECIFIC CFGs #
 ######################
 
-if HOSTNAME == 'limit':
+if HOSTNAME in ['limit', 'fx']:
   from perf.qemu import Template, Bridged, Drive
   from perf.numa import topology
-  #IDLENESS = 40
+  IDLENESS = 50
   SIBLINGS = True
   RESULTS = "./results/limit/"
 
