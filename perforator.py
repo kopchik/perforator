@@ -261,7 +261,7 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
       sleep(pause)
       vm.exclusive()
       try:
-        ipc = ipcistat(vm, interval, subinterval, skip)
+        ipc = ipcistat(vm, time=interval, interval=subinterval, skip=skip)
         withskip[vm.bname].append(ipc)
         print("saving sub-sampled to", vm.bname, ipc)
       except NotCountedError:
