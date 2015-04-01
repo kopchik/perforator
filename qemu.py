@@ -15,7 +15,8 @@ import shlex
 from config import VMS as vms  #do not remove, this triggers population of config
 
 
-PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
+# PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
+PERF = "perf"
 
 
 def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
@@ -57,6 +58,7 @@ def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
   try:
     return mean(instructions[skip:]) / mean(cycles[skip:])
   except ZeroDivisionError:
+    print(cmd)
     raise NotCountedError
 
 if __name__ == '__main__':
