@@ -35,7 +35,22 @@ if HOSTNAME in ['limit', 'fx']:
   SIBLINGS = True
   RESULTS = "./results/limit/"
 
-  #for i, cpu in enumerate(topology.cpus_no_ht):
+  template = Template(
+    name = "template",
+    auto = False,
+    #cpus = [0],  # affinity
+    mem  = 2048,
+    #boot = "d",
+    net  = [Bridged(ifname="research", model='virtio-net',
+           mac="52:54:91:5E:38:BB", br="intbr")],
+    drives = [Drive("/home/virtuals/research.qcow2",
+              iface="virtio", cache="unsafe"),
+              #CDROM("/home/virtuals/archlinux-2014.03.01-dual.iso")
+              ]
+  )
+
+
+
   for i, cpu in enumerate(topology.all):
     vm = Template(
         name = "vm%s"%i,
