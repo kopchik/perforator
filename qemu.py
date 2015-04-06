@@ -8,15 +8,16 @@ from subprocess import check_call
 from socket import socketpair
 from threading import current_thread
 from collections import defaultdict
-from statistics import mean
+from statistics import mean, StatisticsError
 from os import unlink
 import shlex
 
 from config import VMS as vms  #do not remove, this triggers population of config
 
 
-# PERF = "/home/sources/abs/core/linux/src/linux-3.14/tools/perf/perf"
-PERF = "perf"
+#PERF = "/home/sources/abs/core/linux/src/linux-3.19/tools/perf/perf"
+#PERF = "perf"
+PERF = "/home/sources/perf_lite"
 
 
 def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
@@ -57,7 +58,7 @@ def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
     print("nc", nc, ratio)
   try:
     return mean(instructions[skip:]) / mean(cycles[skip:])
-  except ZeroDivisionError:
+  except (ZeroDivisionError, StatisticsError):
     print(cmd)
     raise NotCountedError
 
