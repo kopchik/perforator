@@ -46,11 +46,13 @@ class Setup:
   def __exit__(self, *args):
     for vm in self.vms:
       vm.unfreeze()
+      vm.shared()
     for p in self.pipes:
       if p.returncode is not None:
         print("ACHTUNG!!!!!!!!\n\n!")
-      p.killall()
-
+      # p.killall() TODO: hangs after tests. VMs frozen?
+    for vm in self.vms:
+      vm.stop()
 
 def threadulator(f, params):
   """ Execute routine actions in parallel. """
@@ -62,7 +64,7 @@ def threadulator(f, params):
   [t.join() for t in threads]
 
 
-def reverse_isolated(num, time, pause, vms=None):
+def reverse_isolated(num:int, time:float, pause:float, vms=None):
   result = defaultdict(list)
   for vm in vms:
     vm.freeze()
@@ -178,6 +180,14 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   return Struct(pure=pure, quasi=quasi)
 
 
+def ragged(time:int=10, interval:int=1, vms=None):
+  from functools import partial
+  from qemu import ipcistat
+  f = partial(ipcistat, events=['cycles','instructions', 'cache-misses', 'minor-faults'], time=10.0, interval=1)
+  args = [(vm,) for vm in vms]
+  threadulator(f, args)
+
+
 def shared(num:int=1, interval:float=0.1, pause:float=0.1, vms=None):
   result = defaultdict(list)
 
@@ -189,29 +199,23 @@ def shared(num:int=1, interval:float=0.1, pause:float=0.1, vms=None):
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
       except NotCountedError:
+        print("cannot get shared performance for", vm.bname)
         pass
+      if pause:
+        sleep(pause)
 
   return result
 
 
-def ragged(time:int=10, interval:int=1, vms=None):
-  from functools import partial
-  from qemu import ipcistat
-  f = partial(ipcistat, events=['cycles','instructions', 'cache-misses', 'minor-faults'], time=10.0, interval=1)
-  args = [(vm,) for vm in vms]
-  threadulator(f, args)
-
-
-def freezing(num, interval, pause, delay:float=0.0, vms=None):
+def freezing(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
   """ Measure IPC of individual VMS in freezing environment. """
   result = defaultdict(list)
   for i,vm in enumerate(vms):
     #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
     for _ in range(num):
-      sleep(pause)
+      if pause: sleep(pause)
       vm.exclusive()
-      if delay:
-        sleep(delay)
+      if delay: sleep(delay)
       try:
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
@@ -220,6 +224,38 @@ def freezing(num, interval, pause, delay:float=0.0, vms=None):
         print("missed data point for", vm.bname)
         pass
       vm.shared()
+  return result
+
+
+def freezing2(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
+  """ Like freezing, but with another order of loops. """
+  result = defaultdict(list)
+  for _ in range(num):
+    for i,vm in enumerate(vms):
+    #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
+      if pause: sleep(pause)
+      vm.exclusive()
+      if delay: sleep(delay)
+      try:
+        ipc = vm.ipcstat(interval)
+        result[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+  return result
+
+
+def loosers(num:int=10, interval:float=0.1, pause:float=0.0, vms=None):
+  shared_perf = shared(num=num, interval=interval, pause=pause, vms=vms)
+  frozen_perf = freezing2(num=num, interval=interval, pause=pause, vms=vms)
+  result = {}
+  for bench, sh_perf in shared_perf.items():
+    fr_perf = frozen_perf[bench]
+    ratio = mean(sh_perf) / mean(fr_perf)
+    result[bench] = ratio
+  print(sorted(result.items(), key=lambda v: v[1]))
   return result
 
 
@@ -239,6 +275,7 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
   subinterval = 1000 // rate
 
   # STEP 1: normal freezing approach
+  print("!!!", vms)
   for i,vm in enumerate(vms):
     print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
     for _ in range(num):
@@ -270,6 +307,12 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
       vm.shared()
 
   return Struct(standard=standard, withskip=withskip)
+
+
+def dummy(*args, **kwargs):
+  print("got args:", args, kwargs)
+  print("NOW DOING NOTTHING")
+  sleep(6666666)
 
 
 if __name__ == '__main__':
