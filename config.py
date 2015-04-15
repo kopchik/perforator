@@ -6,7 +6,6 @@ from useful.log import Log
 
 
 from resource import setrlimit, RLIMIT_NOFILE
-from ipaddress import IPv4Address
 from socket import gethostname
 from os import geteuid
 from sys import exit
@@ -50,14 +49,17 @@ if HOSTNAME in ['limit', 'fx']:
 #  )
 
 
-
   for i, cpu in enumerate(topology.all):
     vm = Template(
         name = "vm%s"%i,
         auto = True,
         cpus = [i],  # affinity
-        net  = [Bridged(ifname="template", model='e1000', mac="52:54:91:5E:38:0%s"%i, br="intbr")],
-        drives = [Drive("/home/virtuals/vm%s.qcow2"%i, master="/home/virtuals/research.qcow2", cache="unsafe")],
+        devs = [Bridged(ifname="vm%s"%i, model='e1000', mac="52:54:91:5E:38:0%s"%i, br="intbr"),
+                Drive("/home/virtuals/vm%s.qcow2"%i,
+                  master="/home/virtuals/research.qcow2",
+                  temp=True,
+                  cache="unsafe")
+               ],
         addr = "172.16.5.1%s"%i
         )
     VMS.append(vm)
