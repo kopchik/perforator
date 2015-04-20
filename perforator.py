@@ -180,6 +180,50 @@ def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
   return Struct(pure=pure, quasi=quasi)
 
 
+def distribution2(num:int=1,interval:float=0.1, pause:float=0.1, vms=None, label=None):
+  """ Like distribution, but with another order of operations. """
+  pure = defaultdict(list)
+  quasi = defaultdict(list)
+
+  # quasi-isolated performance
+  for i in range(num):
+    print("step 2: {} out of {}".format(i+1, num))
+    for i,vm in enumerate(vms):
+      sleep(pause)
+      try:
+        vm.exclusive()
+        ipc = vm.ipcstat(interval)
+        quasi[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      finally:
+        vm.shared()
+
+  # purely isolated performance
+  for vm in vms:
+    vm.freeze()
+
+  for i,vm in enumerate(vms):
+    print("step 1: {} out of {}".format(i+1, len(vms)))
+    vm.unfreeze()
+    for _ in range(num):
+      sleep(pause)
+      try:
+        ipc = vm.ipcstat(interval)
+        pure[vm.bname].append(ipc)
+        print("saving pure to", vm.bname, ipc)
+      except NotCountedError:
+        pass
+    vm.freeze()
+
+  for vm in vms:
+    vm.unfreeze()
+
+  return Struct(pure=pure, quasi=quasi)
+
+
 def ragged(time:int=10, interval:int=1, vms=None):
   from functools import partial
   from qemu import ipcistat
@@ -248,6 +292,7 @@ def freezing2(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
 
 
 def loosers(num:int=10, interval:float=0.1, pause:float=0.0, vms=None):
+  """ Detect starving applications. """
   shared_perf = shared(num=num, interval=interval, pause=pause, vms=vms)
   frozen_perf = freezing2(num=num, interval=interval, pause=pause, vms=vms)
   result = {}
@@ -309,6 +354,47 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
   return Struct(standard=standard, withskip=withskip)
 
 
+def distr_subsampling2(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
+  standard = defaultdict(list)
+  withskip = defaultdict(list)
+  subinterval = 1000 // rate
+
+  # STEP 1: normal freezing approach
+  print("!!!", vms)
+  for i,vm in enumerate(vms):
+    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for _ in range(num):
+      sleep(pause)
+      vm.exclusive()
+      try:
+        ipc = vm.ipcstat(interval)
+        standard[vm.bname].append(ipc)
+        print("saving quasi to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      vm.shared()
+
+  # STEP 2: approach with sub-sampling and skip
+  from qemu import ipcistat
+  for _ in range(num):
+    print("step 2: {} out of {}".format(_, num))
+    for i,vm in enumerate(vms):
+      sleep(pause)
+      try:
+        vm.exclusive()
+        ipc = ipcistat(vm, time=interval, interval=subinterval, skip=skip)
+        withskip[vm.bname].append(ipc)
+        print("saving sub-sampled to", vm.bname, ipc)
+      except NotCountedError:
+        print("missed data point for", vm.bname)
+        pass
+      finally:
+        vm.shared()
+
+  return Struct(standard=standard, withskip=withskip)
+
+
 def dummy(*args, **kwargs):
   print("got args:", args, kwargs)
   print("NOW DOING NOTTHING")
@@ -319,6 +405,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
   #parser.add_argument('-s', '--skip', type=int, default=0, help="number of initial samples to skip")
   parser.add_argument('-o', '--output', default=None, help="Where to put results")
+  parser.add_argument('-w', '--warmup', default=10, type=int, help="Warmup time")
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   parser.add_argument('-t', '--test', help="test specification")
   parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
@@ -330,8 +417,8 @@ if __name__ == '__main__':
 
   with Setup(VMS, args.benches):
     if not args.debug:
-      print("benches warm-up for 10 seconds")
-      sleep(10)
+      print("benches warm-up for %s seconds" % args.warmup)
+      sleep(args.warmup)
     func, params = invoke(args.test, globals(), vms=VMS)
     print("invoking", func.__name__, "with", params)
     result = func(**params)
@@ -339,11 +426,11 @@ if __name__ == '__main__':
       print(result)
 
     if args.output:
+      params.pop('vms')
       if args.output == 'auto':
-        params.pop('vms')
         csv = ",".join('%s=%s' % (k,v) for k,v in sorted(params.items()))
-        fname = 'results/%s/%s_%s.pickle' % (gethostname(), func.__name__, csv)
+        fname = 'results/perforator/%s/%s_%s.pickle' % (gethostname(), func.__name__, csv)
       else:
         fname = args.output
       print("pickling to", fname)
-      pickle.dump(Struct(args=args, result=result), open(fname, "wb"))
+      pickle.dump(Struct(func=func.__name__, args=args, result=result), open(fname, "wb"))
