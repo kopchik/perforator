@@ -24,9 +24,10 @@ class Setup:
   """ Launch all VMS at start, stop them at exit. """
   pipes = None
 
-  def __init__(self, vms, benchmarks):
+  def __init__(self, vms, benchmarks, debug=False):
     self.benchmarks = benchmarks
     self.vms = vms
+    self.debug = debug
     self.pipes = []
     if any([vm.start() for vm in vms]):
       print("some of vms were not started, giving them time to start")
@@ -34,7 +35,8 @@ class Setup:
 
   def __enter__(self):
     map = {}
-    wait_idleness(IDLENESS*6)
+    if not self.debug:
+      wait_idleness(IDLENESS*6)
     for bname, vm in zip(self.benchmarks, self.vms):
       #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
@@ -328,7 +330,7 @@ if __name__ == '__main__':
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
-  with Setup(VMS, args.benches):
+  with Setup(VMS, args.benches, debug=args.debug):
     if not args.debug:
       print("benches warm-up for 10 seconds")
       sleep(10)
