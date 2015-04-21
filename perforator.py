@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from itertools import permutations
 from threading import Thread
 from statistics import mean
@@ -7,14 +7,11 @@ from socket import gethostname
 from subprocess import DEVNULL
 from os.path import exists
 from time import sleep
-from math import ceil
 import argparse
-import atexit
 import pickle
 
 from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
-from useful.run import run
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS
@@ -421,18 +418,20 @@ if __name__ == '__main__':
     if not args.debug:
       print("benches warm-up for %s seconds" % args.warmup)
       sleep(args.warmup)
-    func, params = invoke(args.test, globals(), vms=VMS)
-    print("invoking", func.__name__, "with", params)
-    result = func(**params)
+    f, fargs = invoke(args.test, globals(), vms=VMS)
+    print("invoking", f.__name__, "with", fargs)
+    result = f(**fargs)
     if args.print:
       print(result)
 
     if args.output:
-      params.pop('vms')
+      fargs.pop('vms')
       if args.output == 'auto':
-        csv = ",".join('%s=%s' % (k,v) for k,v in sorted(params.items()))
-        fname = 'results/perforator/%s/%s_%s.pickle' % (gethostname(), func.__name__, csv)
+        fargs = ",".join('%s=%s' % (k,v) for k,v in sorted(fargs.items()))
+        fname = 'results/{host}/{f}_{fargs}.pickle'  \
+                .format(host=gethostname(), f=f.__name__, fargs=fargs)
       else:
         fname = args.output
       print("pickling to", fname)
-      pickle.dump(Struct(func=func.__name__, args=args, result=result), open(fname, "wb"))
+      pickle.dump(Struct(f=f.__name__, fargs=fargs, result=result, prog_args=args),
+                  open(fname, "wb"))
