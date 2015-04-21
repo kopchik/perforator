@@ -9,7 +9,7 @@ from statistics import StatisticsError
 from os import unlink
 import shlex
 
-from config import VMS as vms  #do not remove, this triggers population of config
+from config import VMS as vms  # do not remove, this triggers population of config
 
 
 #PERF = "/home/sources/abs/core/linux/src/linux-3.19/tools/perf/perf"
@@ -17,11 +17,11 @@ from config import VMS as vms  #do not remove, this triggers population of confi
 PERF = "/home/sources/perf_lite"
 
 
-def ipcistat(vm, interval, subinterval, events=['cycles','instructions'], skip=0):
+def ipcistat(vm, interval, subinterval, events=['cycles', 'instructions']):
   nc = 0  # num of not counted events
   CMD = "{perf} kvm stat -e {events} -o {out} -x, -I {subinterval} -p {pid} sleep {interval}"
   out = "/tmp/perf_%s_%s" % (vm.bname, current_thread().ident)
-  cmd = CMD.format(perf=PERF, pid=vm.pid, events=",".join(events), \
+  cmd = CMD.format(perf=PERF, pid=vm.pid, events=",".join(events),
                    out=out, subinterval=subinterval, interval=interval)
   try:
     check_call(shlex.split(cmd))
@@ -34,7 +34,7 @@ def ipcistat(vm, interval, subinterval, events=['cycles','instructions'], skip=0
   r = defaultdict(list)
   for s in result.splitlines():
     try:
-      _,rawcnt,_,ev = s.split(',')
+      _, rawcnt, _, ev = s.split(',')
     except ValueError:
       continue
     if rawcnt == '<not counted>':
@@ -45,7 +45,7 @@ def ipcistat(vm, interval, subinterval, events=['cycles','instructions'], skip=0
   instructions = r['instructions']
   cycles = r['cycles']
   assert len(instructions) == len(cycles)
-  for pos, (i,c) in enumerate(zip(instructions, cycles)):
+  for pos, (i, c) in enumerate(zip(instructions, cycles)):
     if i == 0 or c == 0:
       instructions[pos] = cycles[pos] = 0
 
