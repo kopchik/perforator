@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 
-from perf.qemu import Template
-from perf.numa import topology
 from perf.perftool import NotCountedError
-from libvmc import Drive, Bridged, main, manager
+from libvmc import main, manager
 from subprocess import check_call
-from socket import socketpair
 from threading import current_thread
 from collections import defaultdict
-from statistics import mean, StatisticsError
+from statistics import StatisticsError
 from os import unlink
 import shlex
 
@@ -20,12 +17,12 @@ from config import VMS as vms  #do not remove, this triggers population of confi
 PERF = "/home/sources/perf_lite"
 
 
-def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
+def ipcistat(vm, interval, subinterval, events=['cycles','instructions'], skip=0):
   nc = 0  # num of not counted events
-  CMD = "{perf} kvm stat -e {events} -o {out} -x, -I {interval} -p {pid} sleep {time}"
+  CMD = "{perf} kvm stat -e {events} -o {out} -x, -I {subinterval} -p {pid} sleep {interval}"
   out = "/tmp/perf_%s_%s" % (vm.bname, current_thread().ident)
   cmd = CMD.format(perf=PERF, pid=vm.pid, events=",".join(events), \
-                   out=out, interval=interval, time=time)
+                   out=out, subinterval=subinterval, interval=interval)
   try:
     check_call(shlex.split(cmd))
   except:
@@ -38,7 +35,7 @@ def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
   for s in result.splitlines():
     try:
       _,rawcnt,_,ev = s.split(',')
-    except ValueError as err:
+    except ValueError:
       continue
     if rawcnt == '<not counted>':
       print('missing subsample')
@@ -57,10 +54,11 @@ def ipcistat(vm, time, interval, events=['cycles','instructions'], skip=0):
   if ratio > 0.3:
     print("nc", nc, ratio)
   try:
-    return mean(instructions[skip:]) / mean(cycles[skip:])
+    return {'instructions': instructions, 'cycles': cycles}
   except (ZeroDivisionError, StatisticsError):
     print(cmd)
     raise NotCountedError
+
 
 if __name__ == '__main__':
   manager.autostart_delay = 0
