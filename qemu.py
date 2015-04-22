@@ -18,6 +18,7 @@ PERF = "/home/sources/perf_lite"
 
 
 def ipcistat(vm, interval, subinterval, events=['cycles', 'instructions']):
+  interval = interval / 1000
   nc = 0  # num of not counted events
   CMD = "{perf} kvm stat -e {events} -o {out} -x, -I {subinterval} -p {pid} sleep {interval}"
   out = "/tmp/perf_%s_%s" % (vm.bname, current_thread().ident)
