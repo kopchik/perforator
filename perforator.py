@@ -313,6 +313,7 @@ def delay(num:int=1, interval:float=0.1, pause:float=0.1, delay:float=0.01, vms=
   return Struct(without=without, withdelay=withdelay)
 
 
+"""
 def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
   standard = defaultdict(list)
   withskip = defaultdict(list)
@@ -351,18 +352,31 @@ def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=1
       vm.shared()
 
   return Struct(standard=standard, withskip=withskip)
+"""
 
+def distribution_with_subsampling(num:int=1,
+                                  interval:int=100,
+                                  pause:float=None,
+                                  duty:float=None,
+                                  subinterval:int=None,
+                                  vms=None):
+  """ Intervals are in ms. Duty cycle is in (0,1] range.
+  """
+  from qemu import ipcistat  # lazy loading
 
-def distr_subsampling2(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
   standard = defaultdict(list)
   withskip = defaultdict(list)
-  subinterval = 1000 // rate
 
-  # STEP 1: normal freezing approach
-  print("!!!", vms)
-  for i,vm in enumerate(vms):
-    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
-    for _ in range(num):
+  assert not (pause and duty), "accepts either pause or duty"
+  if duty:
+    pause = (interval / duty) / 1000  # in seconds
+  elif not pause:
+    pause = 0.1
+
+  for _ in range(num):
+    print("step 1: {} out of {}".format(_+1, num))
+    # STEP 1: normal freezing approach
+    for vm in vms:
       sleep(pause)
       vm.exclusive()
       try:
@@ -374,15 +388,13 @@ def distr_subsampling2(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=
         pass
       vm.shared()
 
-  # STEP 2: approach with sub-sampling and skip
-  from qemu import ipcistat
-  for _ in range(num):
-    print("step 2: {} out of {}".format(_, num))
-    for i,vm in enumerate(vms):
+    # STEP 2: approach with sub-sampling and skip
+    #print("step 2: {} out of {}".format(_+1, num))
+    for vm in vms:
       sleep(pause)
       try:
         vm.exclusive()
-        ipc = ipcistat(vm, time=interval, interval=subinterval, skip=skip)
+        ipc = ipcistat(vm, interval=interval, subinterval=subinterval)
         withskip[vm.bname].append(ipc)
         print("saving sub-sampled to", vm.bname, ipc)
       except NotCountedError:
