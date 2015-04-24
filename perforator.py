@@ -53,6 +53,7 @@ class Setup:
     for vm in self.vms:
       vm.stop()
 
+
 def threadulator(f, params):
   """ Execute routine actions in parallel. """
   threads = []
@@ -231,12 +232,13 @@ def ragged(time:int=10, interval:int=1, vms=None):
   threadulator(f, args)
 
 
-def shared(num:int=1, interval:float=0.1, pause:float=0.1, vms=None):
-  result = defaultdict(list)
+def shared(num:int=1, interval:int=100, pause:float=0.1, result=None, vms=None):
+  if result is None:
+    result = defaultdict(list)
 
   for i in range(num):
-    if i%10 == 0:
-      print("step 1: {} out of {}".format(i+1, num))
+    #if i%10 == 0:
+    #  print("step 1: {} out of {}".format(i+1, num))
     for vm in vms:
       try:
         ipc = vm.ipcstat(interval)
@@ -250,29 +252,11 @@ def shared(num:int=1, interval:float=0.1, pause:float=0.1, vms=None):
   return result
 
 
-def freezing(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
-  """ Measure IPC of individual VMS in freezing environment. """
-  result = defaultdict(list)
-  for i,vm in enumerate(vms):
-    #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
-    for _ in range(num):
-      if pause: sleep(pause)
-      vm.exclusive()
-      if delay: sleep(delay)
-      try:
-        ipc = vm.ipcstat(interval)
-        result[vm.bname].append(ipc)
-        print("saving quasi to", vm.bname, ipc)
-      except NotCountedError:
-        print("missed data point for", vm.bname)
-        pass
-      vm.shared()
-  return result
-
-
-def freezing2(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
+def freezing(num:int, interval:int, pause:float, delay:float=0.0, result=None, vms=None):
   """ Like freezing, but with another order of loops. """
-  result = defaultdict(list)
+  if result is None:
+    result = defaultdict(list)
+
   for _ in range(num):
     for i,vm in enumerate(vms):
     #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
@@ -282,7 +266,7 @@ def freezing2(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
       try:
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
-        print("saving quasi to", vm.bname, ipc)
+        #print("saving quasi to", vm.bname, ipc)
       except NotCountedError:
         print("missed data point for", vm.bname)
         pass
@@ -290,10 +274,15 @@ def freezing2(num:int, interval:float, pause:float, delay:float=0.0, vms=None):
   return result
 
 
-def loosers(num:int=10, interval:float=0.1, pause:float=0.0, vms=None):
+def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   """ Detect starving applications. """
-  shared_perf = shared(num=num, interval=interval, pause=pause, vms=vms)
-  frozen_perf = freezing2(num=num, interval=interval, pause=pause, vms=vms)
+  shared_perf = defaultdict(list)
+  frozen_perf = defaultdict(list)
+  while num>0:
+    print(num, "measurements left")
+    shared(num=10, interval=interval, pause=pause, result=shared_perf, vms=vms)
+    freezing(num=10, interval=interval, pause=pause, result=frozen_perf, vms=vms)
+    num -= 10
   result = {}
   for bench, sh_perf in shared_perf.items():
     fr_perf = frozen_perf[bench]
@@ -303,7 +292,7 @@ def loosers(num:int=10, interval:float=0.1, pause:float=0.0, vms=None):
   return result
 
 
-def delay(num:int=1, interval:float=0.1, pause:float=0.1, delay:float=0.01, vms=None):
+def delay(num:int=1, interval:int=100, pause:float=0.1, delay:float=0.01, vms=None):
   """ How delay after freeze affects precision. """
   without   = freezing(num, interval, pause, 0.0, vms)
   withdelay = freezing(num, interval, pause, delay, vms)
@@ -382,7 +371,7 @@ def distribution_with_subsampling(num:int=1,
       try:
         ipc = vm.ipcstat(interval)
         standard[vm.bname].append(ipc)
-        print("saving quasi to", vm.bname, ipc)
+        #print("saving quasi to", vm.bname, ipc)
       except NotCountedError:
         print("missed data point for", vm.bname)
         pass
@@ -396,7 +385,7 @@ def distribution_with_subsampling(num:int=1,
         vm.exclusive()
         ipc = ipcistat(vm, interval=interval, subinterval=subinterval)
         withskip[vm.bname].append(ipc)
-        print("saving sub-sampled to", vm.bname, ipc)
+        #print("saving sub-sampled to", vm.bname, ipc)
       except NotCountedError:
         print("missed data point for", vm.bname)
         pass
