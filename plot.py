@@ -8,7 +8,7 @@ from useful.mstring import s
 from argparse import ArgumentParser
 from collections import OrderedDict
 from statistics import mean,pstdev
-from random import choice, random
+from random import choice
 from itertools import cycle
 import numpy as np
 import pickle
@@ -108,24 +108,6 @@ def analyze_reverse2(data):
   myboxplot(plots, labels=labels)
 
 
-def subsampling(data):
-  data = pickle.load(open(data, 'rb')).result
-  isolated = data.standard
-  shared = data.withskip
-  plots, labels = [], []
-  tuples = []
-  for test, isolated, shared in dictzip(isolated, shared):
-     prec = precision2(shared, isolated)
-     tuples.append((test, isolated, shared, prec))
-  tuples = sorted(tuples, key=lambda x: x[0])
-  for test, isolated, shared, prec in tuples:
-      # if prec >0.1: continue
-      plots.append(isolated)
-      plots.append(shared)
-      labels.append("{} {:.1%}".format(test, prec))
-  myboxplot(plots, labels=labels)
-
-
 def analyze_reverse(ref, exp, prec:float=0.95, maxtries:int=50, mode='hist', confidence:float=0.9):
   refdata = pickle.load(open(ref, 'rb')).result
   expdata = pickle.load(open(exp, 'rb')).result
@@ -186,10 +168,12 @@ def compare(data1, data2, legend):
     data.append(ipc(s))
     myboxplot(data, labels=labels, legend=legend, notch=True)
 
+
 def cmp(path1, path2):
   pure   = pickle.load(open(path1, 'rb')).result.pure
   shared = pickle.load(open(path2, 'rb')).result
   return compare(pure, shared, legend=["isolated meas.", "shared meas."])
+
 
 def delay(path):
   struct = pickle.load(open(path, 'rb'))
@@ -197,10 +181,11 @@ def delay(path):
   withdelay = struct.result.withdelay
   return compare(without, withdelay, legend=["without delay", "with delay"])
 
+
 def distribution(data, mode='hist'):
   data = pickle.load(open(data, 'rb'))
-  pure = data.result.pure   # data from pure performance isolation
-  quasi = data.result.quasi # data from quasi isolation
+  pure = data.result.pure    # data from pure performance isolation
+  quasi = data.result.quasi  # data from quasi isolation
   if mode == 'hist':
     for i, (test, ref, measurements) in enumerate(dictzip(pure, quasi)):
       # print(test, len(ref), len(measurements))
@@ -220,6 +205,34 @@ def distribution(data, mode='hist'):
       data.append(ref)
       data.append(measurements)
     box = myboxplot(data, labels=labels, notch=True)
+
+
+def distribution_with_subsampling(data, skip=22, mode='hist'):
+  standard = data.standard
+  withskip = data.withskip
+
+  plots, labels = [], []
+  tuples = []
+  for test, st_ipcs, raw_skp in dictzip(standard, withskip):
+      skp_ipc = []
+      for skp in raw_skp:
+        instr  = mean(skp['instructions'][skip:])
+        cycles = mean(skp['cycles'][skip:])
+        if not cycles:
+          continue
+        skp_ipc.append(instr/cycles)
+
+      tuples.append((test, st_ipcs, skp_ipc))
+
+  tuples = sorted(tuples, key=lambda x: x[0])
+  for test, isolated, shared in tuples:
+      # if prec >0.1: continue
+      plots.append(isolated)
+      plots.append(shared)
+      labels.append(test)
+  myboxplot(plots, labels=labels,
+            legend=["frozen env meas. 50ms", "frozen with skip %sms" % (skip*2)])
+
 
 
 def analyze(real, samples, skip=0, thr=0.9):
@@ -299,25 +312,35 @@ def ragged(path, label=None, lw=4, color=None):
   if color: args['color'] = color
   p.plot(ts, cycles, label=label, lw=lw, **args)
 
-if __name__ == '__main__':
+
+def main():
   parser = ArgumentParser()
   parser.add_argument('-o', '--output', default=None, help="where to save image")
   parser.add_argument('--show', action='store_const', const=True, default=False, help="show plot?")
   parser.add_argument('-t', '--title', help="plot title")
   parser.add_argument('-a', '--annotations', default=None, nargs='+')
-  parser.add_argument('-x', '--xlabel', default=None)
   parser.add_argument('--xlim', type=float, nargs=2, help="limit X axis of the plot")
   parser.add_argument('--ylim', type=float, nargs=2, help="limit Y axis of the plot")
+  parser.add_argument('-x', '--xlabel', default=None)
   parser.add_argument('-y', '--ylabel', default=None)
   parser.add_argument('-f', '--freq', type=int, default=None, help="CPU frequency")
-  parser.add_argument('-p', '--plots', nargs='+', required=True)
+  parser.add_argument('-p', '--plots', nargs='+', default=[])
+  parser.add_argument('-l', '--legacy', action='store_const', const=True, default=False,
+                      help="legacy mode")
   args = parser.parse_args()
   print(args)
 
-  for plot in args.plots:
-    func, params = invoke(plot, globals())
-    print(params)
-    func(**params)
+  if args.legacy:
+    for plot in args.plots:
+      func, params = invoke(plot, globals())
+      print(params)
+      func(**params)
+  else:
+    for plot in args.plots:
+      results = pickle.load(open(plot, 'rb'))
+      fname = results.f
+      func  = globals()[fname]
+      func(results.result)
 
   if args.output or args.show:
     p.legend(loc="best")
@@ -335,3 +358,7 @@ if __name__ == '__main__':
       p.savefig(args.output, dpi=300, bbox_inches='tight')
     # p.tight_layout()
     if args.show: p.show()
+
+
+if __name__ == '__main__':
+  main()
