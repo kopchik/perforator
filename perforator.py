@@ -27,9 +27,10 @@ class Setup:
     self.vms = vms
     self.debug = debug
     self.pipes = []
-    if any([vm.start() for vm in vms]):
-      print("some of vms were not started, giving them time to start")
-      sleep(10)
+    [vm.kill() for vm in vms]
+    sleep(10)
+    [vm.start() for vm in vms]
+    sleep(10)
 
   def __enter__(self):
     map = {}
