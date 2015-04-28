@@ -60,21 +60,12 @@
 #sleep 60
 
 NUM=100
+for INTERVAL in 10 20 50 100 200; do
+  ./perforator.py -t "func=distribution,num=$NUM,interval=$INTERVAL"  -o auto
+  sleep 20
+done
 
-./perforator.py -t "func=distribution,num=$NUM,interval=10"  -o auto
-sleep 20
-./perforator.py -t "func=distribution,num=$NUM,interval=20"  -o auto
-sleep 20
-./perforator.py -t "func=distribution,num=$NUM,interval=50"  -o auto
-sleep 20
-./perforator.py -t "func=distribution,num=$NUM,interval=100"  -o auto
-sleep 20
-./perforator.py -t "func=distribution,num=$NUM,interval=200"  -o auto
-
-time ./perforator.py -t "func=distribution_with_subsampling,num=$NUM,interval=100,subinterval=1"  -o auto
-sleep 20
-time ./perforator.py -t "func=distribution_with_subsampling,num=$NUM,interval=100,subinterval=2"  -o auto
-sleep 20
-time ./perforator.py -t "func=distribution_with_subsampling,num=$NUM,interval=100,subinterval=5"  -o auto
-sleep 20
-time ./perforator.py -t "func=distribution_with_subsampling,num=$NUM,interval=100,subinterval=10"  -o auto
+for SUBINT in 1 2 5 10; do
+  time ./perforator.py -t "func=distribution_with_subsampling,num=$NUM,interval=100,subinterval=$SUBINT"  -o auto
+  sleep 20
+done
