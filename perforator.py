@@ -9,6 +9,7 @@ from os.path import exists
 from time import sleep
 import argparse
 import pickle
+import time
 
 from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
@@ -138,91 +139,6 @@ def reverse(num:int=1, time:float=0.1, pause:float=0.1, vms=None):
   return Struct(isolated=isolated, shared=shared)
 
 
-def distribution(num:int=1,interval:float=0.1, pause:float=0.1, vms=None):
-  """ How ideal performance looks like in isolated and quasi-isolated environments. """
-  pure = defaultdict(list)
-  quasi = defaultdict(list)
-
-  # STEP 1: purely isolated performance
-  for vm in vms:
-    vm.freeze()
-
-  for i,vm in enumerate(vms):
-    print("step 1: {} out of {}".format(i+1, len(vms)))
-    vm.unfreeze()
-    for _ in range(num):
-      try:
-        ipc = vm.ipcstat(interval)
-        pure[vm.bname].append(ipc)
-        print("saving pure to", vm.bname, ipc)
-      except NotCountedError:
-        pass
-    vm.freeze()
-
-  for vm in vms:
-    vm.unfreeze()
-
-  # STEP 2: quasi-isolated performance
-  for i,vm in enumerate(vms):
-    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
-    for _ in range(num):
-      sleep(pause)
-      vm.exclusive()
-      try:
-        ipc = vm.ipcstat(interval)
-        quasi[vm.bname].append(ipc)
-        print("saving quasi to", vm.bname, ipc)
-      except NotCountedError:
-        print("missed data point for", vm.bname)
-        pass
-      vm.shared()
-
-  return Struct(pure=pure, quasi=quasi)
-
-
-def distribution2(num:int=1,interval:float=0.1, pause:float=0.1, vms=None, label=None):
-  """ Like distribution, but with another order of operations. """
-  pure = defaultdict(list)
-  quasi = defaultdict(list)
-
-  # quasi-isolated performance
-  for i in range(num):
-    print("step 2: {} out of {}".format(i+1, num))
-    for i,vm in enumerate(vms):
-      sleep(pause)
-      try:
-        vm.exclusive()
-        ipc = vm.ipcstat(interval)
-        quasi[vm.bname].append(ipc)
-        print("saving quasi to", vm.bname, ipc)
-      except NotCountedError:
-        print("missed data point for", vm.bname)
-        pass
-      finally:
-        vm.shared()
-
-  # purely isolated performance
-  for vm in vms:
-    vm.freeze()
-
-  for i,vm in enumerate(vms):
-    print("step 1: {} out of {}".format(i+1, len(vms)))
-    vm.unfreeze()
-    for _ in range(num):
-      sleep(pause)
-      try:
-        ipc = vm.ipcstat(interval)
-        pure[vm.bname].append(ipc)
-        print("saving pure to", vm.bname, ipc)
-      except NotCountedError:
-        pass
-    vm.freeze()
-
-  for vm in vms:
-    vm.unfreeze()
-
-  return Struct(pure=pure, quasi=quasi)
-
 
 def ragged(time:int=10, interval:int=1, vms=None):
   from functools import partial
@@ -232,13 +148,39 @@ def ragged(time:int=10, interval:int=1, vms=None):
   threadulator(f, args)
 
 
-def shared(num:int=1, interval:int=100, pause:float=0.1, result=None, vms=None):
+def isolated_sampling(num:int=1,
+                      interval:int=100,
+                      pause:float=0.1,
+                      result=None,
+                      vms=None):
+  """ Isolated sampling. """
+  if result is None:
+    result = defaultdict(list)
+
+  for vm in vms:
+    vm.exclusive()
+    for i in range(num):
+      if pause: sleep(pause)
+      try:
+        ipc = vm.ipcstat(interval)
+        result[vm.bname].append(ipc)
+      except NotCountedError:
+        print("cannot get isolated performance for", vm.bname)
+        pass
+    vm.shared()
+
+  return result
+
+
+def shared_sampling(num:int=1,
+                    interval:int=100,
+                    pause:float=0.1,
+                    result=None,
+                    vms=None):
   if result is None:
     result = defaultdict(list)
 
   for i in range(num):
-    #if i%10 == 0:
-    #  print("step 1: {} out of {}".format(i+1, num))
     for vm in vms:
       try:
         ipc = vm.ipcstat(interval)
@@ -252,23 +194,21 @@ def shared(num:int=1, interval:int=100, pause:float=0.1, result=None, vms=None):
   return result
 
 
-def freezing(num:int, interval:int, pause:float, delay:float=0.0, result=None, vms=None):
+def freezing_sampling(num:int, interval:int, pause:float, delay:float=0.0, result=None, vms=None):
   """ Like freezing, but with another order of loops. """
   if result is None:
     result = defaultdict(list)
 
   for _ in range(num):
-    for i,vm in enumerate(vms):
-    #print("{} out of {} for {}".format(i+1, len(vms), vm.bname))
+    for i, vm in enumerate(vms):
       if pause: sleep(pause)
       vm.exclusive()
       if delay: sleep(delay)
       try:
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
-        #print("saving quasi to", vm.bname, ipc)
       except NotCountedError:
-        print("missed data point for", vm.bname)
+        print("cannot get frozen performance for", vm.bname)
         pass
       vm.shared()
   return result
@@ -280,8 +220,8 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   frozen_perf = defaultdict(list)
   while num>0:
     print(num, "measurements left")
-    shared(num=10, interval=interval, pause=pause, result=shared_perf, vms=vms)
-    freezing(num=10, interval=interval, pause=pause, result=frozen_perf, vms=vms)
+    shared_sampling(num=10, interval=interval, pause=pause, result=shared_perf, vms=vms)
+    freezing_sampling(num=10, interval=interval, pause=pause, result=frozen_perf, vms=vms)
     num -= 10
   result = {}
   for bench, sh_perf in shared_perf.items():
@@ -294,54 +234,13 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
 
 def delay(num:int=1, interval:int=100, pause:float=0.1, delay:float=0.01, vms=None):
   """ How delay after freeze affects precision. """
-  without   = freezing(num, interval, pause, 0.0, vms)
-  withdelay = freezing(num, interval, pause, delay, vms)
+  without   = freezing_sampling(num, interval, pause, 0.0, vms)
+  withdelay = freezing_sampling(num, interval, pause, delay, vms)
   print(without)
   print(withdelay)
   print(Struct(without=without, withdelay=withdelay))
   return Struct(without=without, withdelay=withdelay)
 
-
-"""
-def distr_subsampling(num:int=1, interval:float=0.1, pause:float=0.1, rate:int=100, skip:int=2, vms=None):
-  standard = defaultdict(list)
-  withskip = defaultdict(list)
-  subinterval = 1000 // rate
-
-  # STEP 1: normal freezing approach
-  print("!!!", vms)
-  for i,vm in enumerate(vms):
-    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
-    for _ in range(num):
-      sleep(pause)
-      vm.exclusive()
-      try:
-        ipc = vm.ipcstat(interval)
-        standard[vm.bname].append(ipc)
-        print("saving quasi to", vm.bname, ipc)
-      except NotCountedError:
-        print("missed data point for", vm.bname)
-        pass
-      vm.shared()
-
-  # STEP 2: approach with sub-sampling and skip
-  from qemu import ipcistat
-  for i,vm in enumerate(vms):
-    print("step 2: {} out of {} for {}".format(i+1, len(vms), vm.bname))
-    for _ in range(num):
-      sleep(pause)
-      vm.exclusive()
-      try:
-        ipc = ipcistat(vm, time=interval, interval=subinterval, skip=skip)
-        withskip[vm.bname].append(ipc)
-        print("saving sub-sampled to", vm.bname, ipc)
-      except NotCountedError:
-        print("missed data point for", vm.bname)
-        pass
-      vm.shared()
-
-  return Struct(standard=standard, withskip=withskip)
-"""
 
 def distribution_with_subsampling(num:int=1,
                                   interval:int=100,
@@ -349,8 +248,7 @@ def distribution_with_subsampling(num:int=1,
                                   duty:float=None,
                                   subinterval:int=None,
                                   vms=None):
-  """ Intervals are in ms. Duty cycle is in (0,1] range.
-  """
+  """ Intervals are in ms. Duty cycle is in (0,1] range. """
   from qemu import ipcistat  # lazy loading
 
   standard = defaultdict(list)
@@ -395,15 +293,53 @@ def distribution_with_subsampling(num:int=1,
   return Struct(standard=standard, withskip=withskip)
 
 
+def distribution(num:int=1, interval:int=100, pause:float=0.1, vms=None):
+  """ How ideal performance looks like in isolated and quasi-isolated environments. """
+  isolated  = defaultdict(list)
+  frozen    = defaultdict(list)
+  batch_size = 10
+  assert num % batch_size == 0,  \
+      "number of samples should divide by 10, got %s" % num
+  iterations = num // batch_size
+  for i in range(iterations):
+    print("interval %s: %s out of %s" % (interval, i, iterations))
+    isolated_sampling(num=batch_size, interval=interval, pause=pause, result=isolated, vms=vms)
+    freezing_sampling(num=batch_size, interval=interval, pause=pause, result=frozen, vms=vms)
+  return Struct(isolated=isolated, frozen=frozen)
+
+
 def dummy(*args, **kwargs):
   print("got args:", args, kwargs)
   print("NOW DOING NOTTHING")
   sleep(6666666)
 
+def start_stop_time(num:int=10, pause:float=0.1, vms=None):
+  exclusive = []
+  shared    = []
+  for i in range(num):
+    for vm in vms:
+      t = - time.time()
+      vm.exclusive()
+      t += time.time()
+      exclusive.append(t)
+      
+      if pause:
+        time.sleep(pause)
+
+      t = - time.time()
+      vm.shared()
+      t += time.time()
+      shared.append(t)
+
+  print("shared: {shared}, exclusive: {exclusive}, shared+exclusive: {both}"
+        .format(shared=mean(shared),
+                exclusive=mean(exclusive),
+                both=(mean(shared+exclusive))))
+
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
-  #parser.add_argument('-s', '--skip', type=int, default=0, help="number of initial samples to skip")
   parser.add_argument('-o', '--output', default=None, help="Where to put results")
   parser.add_argument('-w', '--warmup', default=10, type=int, help="Warmup time")
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
