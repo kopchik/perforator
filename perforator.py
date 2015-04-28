@@ -313,6 +313,7 @@ def dummy(*args, **kwargs):
   print("NOW DOING NOTTHING")
   sleep(6666666)
 
+
 def start_stop_time(num:int=10, pause:float=0.1, vms=None):
   exclusive = []
   shared    = []
@@ -322,7 +323,7 @@ def start_stop_time(num:int=10, pause:float=0.1, vms=None):
       vm.exclusive()
       t += time.time()
       exclusive.append(t)
-      
+
       if pause:
         time.sleep(pause)
 
@@ -364,9 +365,9 @@ if __name__ == '__main__':
     if args.output:
       fargs.pop('vms')
       if args.output == 'auto':
-        fargs = ",".join('%s=%s' % (k,v) for k,v in sorted(fargs.items()))
+        string_fargs = ",".join('%s=%s' % (k,v) for k,v in sorted(fargs.items()))
         fname = 'results/{host}/{f}_{fargs}.pickle'  \
-                .format(host=gethostname(), f=f.__name__, fargs=fargs)
+                .format(host=gethostname(), f=f.__name__, fargs=string_fargs)
       else:
         fname = args.output
       print("pickling to", fname)
