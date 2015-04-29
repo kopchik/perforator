@@ -28,7 +28,9 @@ class Setup:
     self.debug = debug
     self.pipes = []
     [vm.kill() for vm in vms]
-    sleep(10)
+    sleep(3)
+    if any(vm.pid for vm in vms):
+      raise Exception("there are VMs still running!")
     [vm.start() for vm in vms]
     sleep(10)
 
@@ -52,8 +54,9 @@ class Setup:
       if p.returncode is not None:
         print("ACHTUNG!!!!!!!!\n\n!")
       # p.killall() TODO: hangs after tests. VMs frozen?
-    for vm in self.vms:
-      vm.stop()
+    #for vm in self.vms:
+    #  vm.stop()
+    [vm.kill() for vm in VMS]
 
 
 def threadulator(f, params):
