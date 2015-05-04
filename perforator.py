@@ -20,13 +20,11 @@ from config import basis, VMS, IDLENESS
 
 class Setup:
   """ Launch all VMS at start, stop them at exit. """
-  pipes = None
 
   def __init__(self, vms, benchmarks, debug=False):
     self.benchmarks = benchmarks
     self.vms = vms
     self.debug = debug
-    self.pipes = []
     [vm.kill() for vm in vms]
     sleep(3)
     if any(vm.pid for vm in vms):
@@ -41,20 +39,21 @@ class Setup:
     for bname, vm in zip(self.benchmarks, self.vms):
       #print("{} for {} {}".format(bname, vm.name, vm.pid))
       cmd = basis[bname]
-      p = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+      vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
       vm.bname = bname
-      self.pipes.append(p)
     return map
 
   def __exit__(self, *args):
+    print("tearing down the system")
     for vm in self.vms:
       vm.unfreeze()
       vm.shared()
-    for p in self.pipes:
-      if p.returncode is not None:
-        print("ACHTUNG!!!!!!!! Test died! Manual intervention needed\n\n")
+      ret = vm.pipe.poll()
+      if ret is not None:
+        print("Test {bmark} on {vm} died with {ret}! Manual intervention needed\n\n" \
+              .format(bmark=vm.bname, vm=vm, ret=ret))
         import pdb; pdb.set_trace()
-      # p.killall() TODO: hangs after tests. VMs frozen?
+      # vm.pipe.killall() TODO: hangs after tests. VMs frozen?
     #for vm in self.vms:
     #  vm.stop()
     [vm.kill() for vm in VMS]
