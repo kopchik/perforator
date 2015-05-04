@@ -52,7 +52,8 @@ class Setup:
       vm.shared()
     for p in self.pipes:
       if p.returncode is not None:
-        print("ACHTUNG!!!!!!!!\n\n!")
+        print("ACHTUNG!!!!!!!! Test died! Manual intervention needed\n\n")
+        import pdb; pdb.set_trace()
       # p.killall() TODO: hangs after tests. VMs frozen?
     #for vm in self.vms:
     #  vm.stop()
