@@ -17,6 +17,7 @@ from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS
 
+from itertools import cycle
 
 class Setup:
   """ Launch all VMS at start, stop them at exit. """
@@ -61,7 +62,7 @@ class Setup:
     [vm.kill() for vm in VMS]
 
 
-def threadulator(f, params):
+def threadulator(f, params=cycle([tuple()])):
   """ Execute routine actions in parallel. """
   threads = []
   for param in params:
@@ -239,6 +240,7 @@ def isolated_vs_shared(num:int=10, interval:int=100, pause:float=0.1, vms=None):
 
 def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   """ Detect starving applications. """
+  # OUR METHOD
   shared_perf = defaultdict(list)
   frozen_perf = defaultdict(list)
   while num>0:
@@ -246,12 +248,23 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
     shared_sampling(num=10, interval=interval, pause=pause, result=shared_perf, vms=vms)
     freezing_sampling(num=10, interval=interval, pause=pause, result=frozen_perf, vms=vms)
     num -= 10
-  result = {}
+  sampling_result = {}
   for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
     # fr_perf = frozen_perf[bench]
     ratio = mean(sh_perf) / mean(fr_perf)
-    result[bench] = ratio
-  print(sorted(result.items(), key=lambda v: v[1]))
+    sampling_result[bench] = ratio
+  print("out technique:")
+  print(sorted(sampling_result.items(), key=lambda v: v[1]))
+
+  # MORE RELIABLE LONG METHOD
+  print("loosers, phase 2: getting shared perfs...")
+  shared_perf = {}
+  for i, vm in enumerate(vms):
+    def f():
+      ipc = vm.ipcstat(interval=18*100)
+      shared_perf[vm] = ipc
+    threadulator(f)
+  print("standard approach: shared_perf:", shared_perf)
   input("press any key to finish the test...")
   return result
 
