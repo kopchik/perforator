@@ -228,8 +228,8 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
     freezing_sampling(num=10, interval=interval, pause=pause, result=frozen_perf, vms=vms)
     num -= 10
   result = {}
-  for bench, sh_perf in shared_perf.items():
-    fr_perf = frozen_perf[bench]
+  for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
+    # fr_perf = frozen_perf[bench]
     ratio = mean(sh_perf) / mean(fr_perf)
     result[bench] = ratio
   print(sorted(result.items(), key=lambda v: v[1]))
