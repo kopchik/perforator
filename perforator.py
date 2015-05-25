@@ -48,6 +48,8 @@ class Setup:
     for vm in self.vms:
       vm.unfreeze()
       vm.shared()
+      if not hasattr(vm, "pipe"):
+        continue
       ret = vm.pipe.poll()
       if ret is not None:
         print("Test {bmark} on {vm} died with {ret}! Manual intervention needed\n\n" \
@@ -198,7 +200,12 @@ def shared_sampling(num:int=1,
   return result
 
 
-def freezing_sampling(num:int, interval:int, pause:float, delay:float=0.0, result=None, vms=None):
+def freezing_sampling(num:int,
+                      interval:int,
+                      pause:float=0.1,
+                      delay:float=0.0,
+                      result=None,
+                      vms=None):
   """ Like freezing, but with another order of loops. """
   if result is None:
     result = defaultdict(list)
@@ -216,6 +223,18 @@ def freezing_sampling(num:int, interval:int, pause:float, delay:float=0.0, resul
         pass
       vm.shared()
   return result
+
+
+def isolated_vs_shared(num:int=10, interval:int=100, pause:float=0.1, vms=None):
+  isolated = defaultdict(list)
+  shared   = defaultdict(list)
+  step = 10
+  assert not num % step, "num should be a multiple of %s" % step
+  for i in range(num//step):
+    print("step {} of {}".format(i+1, num//step))
+    isolated_sampling(num=step, interval=interval, pause=pause, result=isolated, vms=vms)
+    shared_sampling(num=step,   interval=interval, pause=pause, result=shared,   vms=vms)
+  return Struct(isolated=isolated, shared=shared)
 
 
 def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
@@ -312,10 +331,18 @@ def distribution(num:int=1, interval:int=100, pause:float=0.1, vms=None):
   return Struct(isolated=isolated, frozen=frozen)
 
 
-def dummy(*args, **kwargs):
+def dummy(pause:int=6666666, *args, **kwargs):
   print("got args:", args, kwargs)
-  print("NOW DOING NOTTHING")
-  sleep(6666666)
+  print("NOW DOING NOTHING FOR %ss" % pause)
+  sleep(pause)
+
+
+def syswide_stat(time:float=10, vms=[]):
+  from perf import perftool
+  print("measuring system wide kvm stats %ss" % time)
+  performance = perftool.ipc(guest=True, systemwide=True, time=time)
+  print("{:.3f}".format(performance))
+
 
 
 def start_stop_time(num:int=10, pause:float=0.1, vms=None):

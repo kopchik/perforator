@@ -104,7 +104,7 @@ basis = dict(
   # INIT DB: sudo -u postgres pgbench -i
   pgbench = "sudo -u postgres pgbench -c 20 -s 10 -T 100000",
   static  = "siege -c 100 -t 666h http://localhost/big_static_file",  # TODO: too CPU consuming,
-  wordpress = "siege -c 100 -t 666h http://localhost/",
+  wordpress = "siege -c 10 -t 666h http://localhost/",
   # matrix = "/home/sources/perftest/benches/matrix.py -s 1024 -r 1000",
   matrix = BENCHES + "matrix 2048",
   sdag   = BENCHES + "test_SDAG/test_sdag -t 5 -q 1000 /home/sources/perftest/benches/test_SDAG/dataset.dat",
