@@ -252,6 +252,7 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
     ratio = mean(sh_perf) / mean(fr_perf)
     result[bench] = ratio
   print(sorted(result.items(), key=lambda v: v[1]))
+  input("press any key to finish the test...")
   return result
 
 
