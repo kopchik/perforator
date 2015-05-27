@@ -17,7 +17,7 @@ from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS
 
-from itertools import cycle
+#from itertools import cycle
 
 class Setup:
   """ Launch all VMS at start, stop them at exit. """
@@ -62,7 +62,7 @@ class Setup:
     [vm.kill() for vm in VMS]
 
 
-def threadulator(f, params=cycle([tuple()])):
+def threadulator(f, params):
   """ Execute routine actions in parallel. """
   threads = []
   for param in params:
@@ -201,6 +201,34 @@ def shared_sampling(num:int=1,
   return result
 
 
+def shared_thr_sampling(num:int=1,
+                        interval:int=100,
+                        pause:float=0.0,
+                        result=None,
+                        vms=None):
+  if result is None:
+    result = defaultdict(list)
+
+  threads = []
+  for vm in vms:
+    def f(vm=vm):
+      for i in range(num):
+        try:
+          ipc = vm.ipcstat(interval)
+          result[vm.bname].append(ipc)
+        except NotCountedError:
+          print("cannot get shared performance for", vm.bname)
+          pass
+        if pause:
+          sleep(pause)
+
+    threads.append(Thread(target=f))
+  [t.start() for t in threads]
+  [t.join() for t in threads]
+
+  return result
+
+
 def freezing_sampling(num:int,
                       interval:int,
                       pause:float=0.1,
@@ -240,7 +268,6 @@ def isolated_vs_shared(num:int=10, interval:int=100, pause:float=0.1, vms=None):
 
 def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   """ Detect starving applications. """
-  # OUR METHOD
   shared_perf = defaultdict(list)
   frozen_perf = defaultdict(list)
   while num>0:
@@ -248,24 +275,33 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
     shared_sampling(num=10, interval=interval, pause=pause, result=shared_perf, vms=vms)
     freezing_sampling(num=10, interval=interval, pause=pause, result=frozen_perf, vms=vms)
     num -= 10
-  sampling_result = {}
-  for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
-    # fr_perf = frozen_perf[bench]
-    ratio = mean(sh_perf) / mean(fr_perf)
-    sampling_result[bench] = ratio
-  print("out technique:")
-  print(sorted(sampling_result.items(), key=lambda v: v[1]))
 
-  # MORE RELIABLE LONG METHOD
-  print("loosers, phase 2: getting shared perfs...")
-  shared_perf = {}
-  for i, vm in enumerate(vms):
-    def f():
-      ipc = vm.ipcstat(interval=18*100)
-      shared_perf[vm] = ipc
-    threadulator(f)
-  print("standard approach: shared_perf:", shared_perf)
-  input("press any key to finish the test...")
+  result = {}
+  for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
+    ratio = mean(sh_perf) / mean(fr_perf)
+    result[bench] = ratio
+  print("our technique:")
+  print(sorted(result.items(), key=lambda v: v[1]))
+
+  return result
+
+
+def real_loosers(vms=None):
+  """ Detect starving applications. """
+  shared_perf = defaultdict(list)
+  frozen_perf = defaultdict(list)
+  for i,x in enumerate(range(20)):
+    print("iteration", i)
+    shared_thr_sampling(num=1, interval=10*1000, result=shared_perf, vms=vms)
+    freezing_sampling(num=1, interval=10*1000, pause=0.1, result=frozen_perf, vms=vms)
+
+  result = {}
+  for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
+    ratio = mean(sh_perf) / mean(fr_perf)
+    result[bench] = ratio
+  print("Straight forward technique:")
+  print(sorted(result.items(), key=lambda v: v[1]))
+
   return result
 
 
@@ -358,7 +394,6 @@ def syswide_stat(time:float=10, vms=[]):
   print("{:.3f}".format(performance))
 
 
-
 def start_stop_time(num:int=10, pause:float=0.1, vms=None):
   exclusive = []
   shared    = []
@@ -383,6 +418,33 @@ def start_stop_time(num:int=10, pause:float=0.1, vms=None):
                 both=(mean(shared+exclusive))))
 
 
+def isolated_perf(vms):
+  from subprocess import check_call
+  import shlex
+
+  benchmarks = "matrix wordpress blosc static sdag sdagp pgbench ffmpeg".split()
+  for bname, vm in zip(benchmarks, vms):
+    #if bname != 'wordpress':
+    #  continue
+    wait_idleness(IDLENESS*6)
+    cmd = basis[bname]
+    pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+    sleep(10)
+
+    PERF = "/home/sources/perf_lite"
+    CMD = "{perf} kvm stat -e instructions,cycles -o {out} -x, -I {subinterval} -p {pid} sleep {sleep}"
+    out = "results/fx/isolated_perf_%s.csv" % bname
+    cmd = CMD.format(perf=PERF, pid=vm.pid,
+                     out=out, subinterval=100, sleep=180)
+    check_call(shlex.split(cmd))
+
+    ret = pipe.poll()
+    if ret is not None:
+      print("Test {bmark} on {vm} died with {ret}! Manual intervention needed\n\n" \
+            .format(bmark=bname, vm=vm, ret=ret))
+      import pdb; pdb.set_trace()
+    pipe.killall()
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
@@ -391,11 +453,15 @@ if __name__ == '__main__':
   parser.add_argument('-d', '--debug', default=False, const=True, action='store_const', help='enable debug mode')
   parser.add_argument('-t', '--test', help="test specification")
   parser.add_argument('-p', '--print', default=False, const=True, action='store_const', help='print result')
-  parser.add_argument('-b', '--benches', nargs='+', default="matrix wordpress blosc static sdag sdagp pgbench ffmpeg".split(), help="which benchmarks to run")
+  parser.add_argument('-b', '--benches', nargs='*', default="matrix wordpress blosc static sdag sdagp pgbench ffmpeg".split(), help="which benchmarks to run")
   args = parser.parse_args()
   print("config:", args)
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
+
+  #from perf.numa import pin_task
+  #import os
+  #pin_task(os.getpid(), 4)
 
   with Setup(VMS, args.benches, debug=args.debug):
     if not args.debug:
