@@ -158,6 +158,7 @@ def ragged(time:int=10, interval:int=1, vms=None):
 def isolated_sampling(num:int=1,
                       interval:int=100,
                       pause:float=0.1,
+                      delay:float=None,
                       result=None,
                       vms=None):
   """ Isolated sampling. """
@@ -169,6 +170,7 @@ def isolated_sampling(num:int=1,
     for i in range(num):
       if pause: sleep(pause)
       try:
+        if delay: sleep(delay)
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
       except NotCountedError:
@@ -243,8 +245,8 @@ def freezing_sampling(num:int,
     for i, vm in enumerate(vms):
       if pause: sleep(pause)
       vm.exclusive()
-      if delay: sleep(delay)
       try:
+        if delay: sleep(delay)
         ipc = vm.ipcstat(interval)
         result[vm.bname].append(ipc)
       except NotCountedError:
@@ -366,7 +368,7 @@ def distribution_with_subsampling(num:int=1,
   return Struct(standard=standard, withskip=withskip)
 
 
-def distribution(num:int=1, interval:int=100, pause:float=0.1, vms=None):
+def distribution(num:int=1, interval:int=100, pause:float=0.1, delay:float=None, vms=None):
   """ How ideal performance looks like in isolated and quasi-isolated environments. """
   isolated  = defaultdict(list)
   frozen    = defaultdict(list)
@@ -376,8 +378,8 @@ def distribution(num:int=1, interval:int=100, pause:float=0.1, vms=None):
   iterations = num // batch_size
   for i in range(iterations):
     print("interval %s: %s out of %s" % (interval, i, iterations))
-    isolated_sampling(num=batch_size, interval=interval, pause=pause, result=isolated, vms=vms)
-    freezing_sampling(num=batch_size, interval=interval, pause=pause, result=frozen, vms=vms)
+    isolated_sampling(num=batch_size, interval=interval, pause=pause, delay=delay, result=isolated, vms=vms)
+    freezing_sampling(num=batch_size, interval=interval, pause=pause, delay=delay, result=frozen, vms=vms)
   return Struct(isolated=isolated, frozen=frozen)
 
 
@@ -493,13 +495,13 @@ def isolated_perf(vms):
     pipe.killall()
 
 
-def perfstat_sampling(num:int=100, interval:int=100, pause:float=0.1, vms=None):
+def perfstat_sampling(num:int=100, interval:int=100, pause:float=0.1, delay:float=0.002, vms=None):
   from perf.numa import get_cur_cpu
   from perfstat import Perf
 
   isolated  = defaultdict(list)
   frozen    = defaultdict(list)
-  batch_size = 10
+  batch_size = 5
   assert num % batch_size == 0,  \
       "number of samples should divide by 10, got %s" % num
   iterations = num // batch_size
@@ -513,6 +515,7 @@ def perfstat_sampling(num:int=100, interval:int=100, pause:float=0.1, vms=None):
         bmark = vm.bname
         if pause: sleep(pause)
         vm.exclusive()
+        sleep(delay)
         stat = perf.measure(interval)
         if stat[0] and stat[1]:
           ipc = stat[0] / stat[1]
