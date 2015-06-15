@@ -387,6 +387,19 @@ def dummy(pause:int=6666666, *args, **kwargs):
   sleep(pause)
 
 
+def dummy_opt(pause:int=6666666, vms=[]):
+  from perf.numa import topology
+  allocs = [
+    ("mine", topology.no_ht),
+  ]
+  for alloc_name, alloc in allocs:
+    #assert len(vms) == len(alloc)
+    input("press any key to optimize with %s: %s" % (alloc_name, alloc))
+    for cpu, vm in zip(alloc, vms):
+      vm.set_cpus([cpu])
+  sleep(pause)
+
+
 def syswide_stat(time:float=10, vms=[]):
   from perf import perftool
   print("measuring system wide kvm stats %ss" % time)
