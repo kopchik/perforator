@@ -4,7 +4,7 @@ from itertools import permutations
 from threading import Thread
 from statistics import mean
 from socket import gethostname
-from subprocess import DEVNULL
+from subprocess import DEVNULL, Popen
 from os.path import exists
 from time import sleep
 import argparse
@@ -381,6 +381,53 @@ def distribution(num:int=1, interval:int=100, pause:float=0.1, vms=None):
   return Struct(isolated=isolated, frozen=frozen)
 
 
+def distribution_with_subsampling2(num:int=1,
+                                  interval:int=100,
+                                  pause:float=None,
+                                  duty:float=None,
+                                  subinterval:int=None,
+                                  vms=None):
+  """ Intervals are in ms. Duty cycle is in (0,1] range. """
+  from qemu import ipcistat  # lazy loading
+
+
+  assert not (pause and duty), "accepts either pause or duty"
+  if duty:
+    pause = (interval / duty) / 1000  # in seconds
+  elif not pause:
+    pause = 0.1
+
+  isolated  = defaultdict(list)
+  frozen    = defaultdict(list)
+  batch_size = 10
+  assert num % batch_size == 0,  \
+      "number of samples should divide by 10, got %s" % num
+  iterations = num // batch_size
+
+  for i in range(iterations):
+    print("interval %s: %s out of %s" % (interval, i, iterations))
+    isolated_sampling(num=batch_size, interval=interval, pause=pause, result=isolated, vms=vms)
+
+
+    for i in range(num):
+      for vm in vms:
+        sleep(pause)
+        try:
+          vm.exclusive()
+          ipc = ipcistat(vm, interval=interval, subinterval=subinterval)
+          frozen[vm.bname].append(ipc)
+          #print("saving sub-sampled to", vm.bname, ipc)
+        except NotCountedError:
+          print("missed data point for", vm.bname)
+          pass
+        finally:
+          vm.shared()
+
+    freezing_sampling(num=batch_size, interval=interval, pause=pause, result=frozen, vms=vms)
+
+  return Struct(isolated=isolated, frozen=frozen)
+
+
 def dummy(pause:int=6666666, *args, **kwargs):
   print("got args:", args, kwargs)
   print("NOW DOING NOTHING FOR %ss" % pause)
@@ -446,7 +493,7 @@ def isolated_perf(vms):
 
     PERF = "/home/sources/perf_lite"
     CMD = "{perf} kvm stat -e instructions,cycles -o {out} -x, -I {subinterval} -p {pid} sleep {sleep}"
-    out = "results/fx/isolated_perf_%s.csv" % bname
+    out = "results/limit/isolated_perf_%s.csv" % bname
     cmd = CMD.format(perf=PERF, pid=vm.pid,
                      out=out, subinterval=100, sleep=180)
     check_call(shlex.split(cmd))
@@ -457,6 +504,82 @@ def isolated_perf(vms):
             .format(bmark=bname, vm=vm, ret=ret))
       import pdb; pdb.set_trace()
     pipe.killall()
+
+
+def perfstat_sampling(num:int=100, interval:int=100, pause:float=0.1, vms=None):
+  from perf.numa import get_cur_cpu
+  from perfstat import Perf
+
+  isolated  = defaultdict(list)
+  frozen    = defaultdict(list)
+  batch_size = 10
+  assert num % batch_size == 0,  \
+      "number of samples should divide by 10, got %s" % num
+  iterations = num // batch_size
+  perfs = [Perf(cpu=get_cur_cpu(vm.pid)) for vm in vms]
+
+  for i in range(1, iterations+1):
+    print(i, "out of", iterations)
+    # frozen
+    for j in range(batch_size):
+      for vm, perf in zip(vms, perfs):
+        bmark = vm.bname
+        if pause: sleep(pause)
+        vm.exclusive()
+        stat = perf.measure(interval)
+        if stat[0] and stat[1]:
+          ipc = stat[0] / stat[1]
+          frozen[bmark].append(ipc)
+        else:
+          print("Perf() missed a datapoint")
+        vm.shared()
+
+    # isolated
+    for vm, perf in zip(vms, perfs):
+      vm.exclusive()
+      bmark = vm.bname
+      for i in range(batch_size):
+        if pause: sleep(pause)
+        stat = perf.measure(interval)
+        if stat[0] and stat[1]:
+          ipc = stat[0] / stat[1]
+          isolated[bmark].append(ipc)
+        else:
+          print("Perf() missed a datapoint")
+      vm.shared()
+
+  return Struct(isolated=isolated, frozen=frozen)
+
+
+
+# TODO: name collision???
+def start_stop(num:int,
+               interval:int,
+               pause:float=0.1,
+               vms=None):
+  import shlex
+  """ Like freezing, but do not make any. """
+  for vm in vms:
+    if vm.bname == 'sdag':
+      break
+
+
+  PERF = "/home/sources/perf_lite"
+  CMD = "{perf} kvm stat -e instructions,cycles -o {out} -x, -I {subinterval} -p {pid}"
+  out = "results/limit/start_stop_f_subint1_%s.csv" % vm.bname
+  cmd = CMD.format(perf=PERF, pid=vm.pid, out=out, subinterval=1)
+  p = Popen(shlex.split(cmd))
+
+  for i in range(1, num+1):
+    #print("%s out of %s" % (i, num))
+    if pause:
+      sleep(pause)
+    vm.exclusive()
+    sleep(interval/1000)
+    vm.shared()
+  print("done")
+  p.send_signal(2)  # SIGINT
+  return None
 
 
 if __name__ == '__main__':
@@ -472,9 +595,9 @@ if __name__ == '__main__':
 
   assert not args.output or not exists(args.output), "output %s already exists" % args.output
 
-  #from perf.numa import pin_task
-  #import os
-  #pin_task(os.getpid(), 4)
+  from perf.numa import pin_task
+  import os
+  pin_task(os.getpid(), 6)
 
   with Setup(VMS, args.benches, debug=args.debug):
     if not args.debug:

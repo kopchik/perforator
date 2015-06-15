@@ -67,7 +67,6 @@ class Collector(Thread):
     while True:
       ev.wait()
       time.sleep(interval)
-      totins = 0
       for vm in vms:
         # measure CPU
         vmstat = stat[vm]
@@ -75,13 +74,13 @@ class Collector(Thread):
         vmstat.cpu.append(cpu)
 
         try:
-          # TODO! vm.exclusive()
+          #vm.exclusive()
           isolated = vm.ipcstat(measure_time, raw=True)
           vmstat.isolated.append(isolated)
 
           time.sleep(interval)
 
-          # TODO! vm.shared()
+          vm.shared()
           shared = vm.ipcstat(measure_time, raw=True)
           vmstat.shared.append(shared)
         except NotCountedError:
