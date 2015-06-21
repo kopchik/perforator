@@ -305,6 +305,36 @@ def real_loosers(vms=None):
   return result
 
 
+def dead_opt(vms=None):
+  """ Optimize applications when dense packed. """
+  from perf.numa import topology
+  from copy import copy
+  # SET AFFINITY
+  # range by reverse rank
+  ranked = []
+  cpus = copy(topology.all)
+  for cpu in cpus:
+    ranked.append(cpu)
+    cpus.remove(cpu)
+
+    sibblings = topology.get_thread_sibling(cpu)
+    assert len(sibblings) == 1, "only one sibbling is allowed"
+    ranked.append(sibblings[0])
+    cpus.remove(sibblings[0])
+  print(ranked)
+  for vm,cpu in zip(vms, ranked):
+    if not vm.bname:
+      break
+    if vm.bname == 'matrix':
+      vm.set_cpus([3])
+    else:
+      vm.set_cpus([cpu])
+    print("assignment: {bmark}: {cpu}".format(bmark=vm.bname, cpu=cpu))
+
+  sleep(1)
+
+  stats = real_loosers(vms=vms)
+
 def delay(num:int=1, interval:int=100, pause:float=0.1, delay:float=0.01, vms=None):
   """ How delay after freeze affects precision. """
   without   = freezing_sampling(num, interval, pause, 0.0, vms)
