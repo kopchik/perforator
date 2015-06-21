@@ -6,6 +6,8 @@ from statistics import mean
 from socket import gethostname
 from subprocess import DEVNULL, Popen
 from os.path import exists
+from os import urandom
+from random import choice
 from time import sleep
 import argparse
 import pickle
@@ -16,6 +18,7 @@ from perf.utils import wait_idleness
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS
+
 
 #from itertools import cycle
 
@@ -60,6 +63,24 @@ class Setup:
     #for vm in self.vms:
     #  vm.stop()
     [vm.kill() for vm in VMS]
+
+
+def cpu_enum():
+  """ Enumerate CPU cores, sibblings have adjacent numbers. """
+  from perf.numa import topology
+  from copy import copy
+  ranked = []
+  cpus = copy(topology.all)
+  for cpu in cpus:
+    ranked.append(cpu)
+    cpus.remove(cpu)
+    sibblings = topology.get_thread_sibling(cpu)
+    assert len(sibblings) == 1, "only one sibbling is allowed"
+    sibbling = sibblings[0]
+    ranked.append(sibbling)
+    cpus.remove(sibbling)
+  print(ranked)
+  return ranked
 
 
 def threadulator(f, params):
@@ -144,7 +165,6 @@ def reverse(num:int=1, time:float=0.1, pause:float=0.1, vms=None):
   print("shared")
   shared = reverse_shared(num=num, time=time, pause=pause, vms=vms)
   return Struct(isolated=isolated, shared=shared)
-
 
 
 def ragged(time:int=10, interval:int=1, vms=None):
@@ -286,54 +306,25 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   return result
 
 
-def real_loosers(vms=None):
-  """ Detect starving applications. """
+def real_loosers(num=10, interval=10*1000, pause=0.1, vms=None):
+  """ Detect starving applications. Improved version """
   shared_perf = defaultdict(list)
   frozen_perf = defaultdict(list)
-  for i,x in enumerate(range(20)):
+  for i,x in enumerate(range(num)):
     print("iteration", i)
-    shared_thr_sampling(num=1, interval=10*1000, result=shared_perf, vms=vms)
-    freezing_sampling(num=1, interval=10*1000, pause=0.1, result=frozen_perf, vms=vms)
+    shared_thr_sampling(num=1, interval=interval, result=shared_perf, vms=vms)
+    freezing_sampling(num=1,   interval=interval, pause=0.1, result=frozen_perf, vms=vms)
+    sleep(pause)
 
   result = {}
   for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
     ratio = mean(sh_perf) / mean(fr_perf)
     result[bench] = ratio
-  print("Straight forward technique:")
-  print(sorted(result.items(), key=lambda v: v[1]))
+  result = sorted(result.items(), key=lambda v: v[1])
+  print("Loosers: straight forward technique:\n", result)
 
   return result
 
-
-def dead_opt(vms=None):
-  """ Optimize applications when dense packed. """
-  from perf.numa import topology
-  from copy import copy
-  # SET AFFINITY
-  # range by reverse rank
-  ranked = []
-  cpus = copy(topology.all)
-  for cpu in cpus:
-    ranked.append(cpu)
-    cpus.remove(cpu)
-
-    sibblings = topology.get_thread_sibling(cpu)
-    assert len(sibblings) == 1, "only one sibbling is allowed"
-    ranked.append(sibblings[0])
-    cpus.remove(sibblings[0])
-  print(ranked)
-  for vm,cpu in zip(vms, ranked):
-    if not vm.bname:
-      break
-    if vm.bname == 'matrix':
-      vm.set_cpus([3])
-    else:
-      vm.set_cpus([cpu])
-    print("assignment: {bmark}: {cpu}".format(bmark=vm.bname, cpu=cpu))
-
-  sleep(1)
-
-  stats = real_loosers(vms=vms)
 
 def delay(num:int=1, interval:int=100, pause:float=0.1, delay:float=0.01, vms=None):
   """ How delay after freeze affects precision. """
@@ -420,7 +411,6 @@ def distribution_with_subsampling2(num:int=1,
   """ Intervals are in ms. Duty cycle is in (0,1] range. """
   from qemu import ipcistat  # lazy loading
 
-
   assert not (pause and duty), "accepts either pause or duty"
   if duty:
     pause = (interval / duty) / 1000  # in seconds
@@ -456,25 +446,6 @@ def distribution_with_subsampling2(num:int=1,
     freezing_sampling(num=batch_size, interval=interval, pause=pause, result=frozen, vms=vms)
 
   return Struct(isolated=isolated, frozen=frozen)
-
-
-def dummy(pause:int=6666666, *args, **kwargs):
-  print("got args:", args, kwargs)
-  print("NOW DOING NOTHING FOR %ss" % pause)
-  sleep(pause)
-
-
-def dummy_opt(pause:int=6666666, vms=[]):
-  from perf.numa import topology
-  allocs = [
-    ("mine", topology.no_ht),
-  ]
-  for alloc_name, alloc in allocs:
-    #assert len(vms) == len(alloc)
-    input("press any key to optimize with %s: %s" % (alloc_name, alloc))
-    for cpu, vm in zip(alloc, vms):
-      vm.set_cpus([cpu])
-  sleep(pause)
 
 
 def syswide_stat(time:float=10, vms=[]):
@@ -610,6 +581,79 @@ def start_stop(num:int,
   print("done")
   p.send_signal(2)  # SIGINT
   return None
+
+def dummy(pause:int=6666666, *args, **kwargs):
+  print("got args:", args, kwargs)
+  print("NOW DOING NOTHING FOR %ss" % pause)
+  sleep(pause)
+
+
+def dummy_opt(pause:int=6666666, vms=[]):
+  from perf.numa import topology
+  allocs = [
+    ("mine", topology.no_ht),
+  ]
+  for alloc_name, alloc in allocs:
+    #assert len(vms) == len(alloc)
+    input("press any key to optimize with %s: %s" % (alloc_name, alloc))
+    for cpu, vm in zip(alloc, vms):
+      vm.set_cpus([cpu])
+  sleep(pause)
+
+def dead_opt(vms=None):
+  """ Optimize applications when dense packed. """
+  ranked = cpu_enum()
+  for vm,cpu in zip(vms, ranked):
+    if not vm.bname:
+      break
+    if vm.bname == 'matrix':
+      vm.set_cpus([3])
+    else:
+      vm.set_cpus([cpu])
+    print("assignment: {bmark}: {cpu}".format(bmark=vm.bname, cpu=cpu))
+
+  sleep(1)  # just in case
+
+  stats = real_loosers(vms=vms)
+  return stats
+
+
+def mychoice(l):
+  rndbyte = ord(urandom(1))
+  return l[rndbyte%len(l)]
+
+
+def sysperf(t=1):
+  from perf import perftool
+  stat = perftool.kvmstat(time=t, events="instructions cycles".split(),systemwide=True)
+  ipc = stat['instructions'] / stat['cycles']
+  performance = stat['instructions'] / (1000**3)
+  return performance, ipc
+
+
+def dead_opt_n(n=4, vms=None):
+  """ Spawn N tasks. """
+  cpus_ranked = cpu_enum()
+  def report(header):
+    performance, ipc = sysperf(t=10)
+    print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
+          .format(header=header, perf=performance, ipc=ipc))
+
+  report("before start")
+  benchmarks = list(basis.items())
+  # SPAWN
+  active_vms = []
+  for i, vm, cpu in zip(range(n), vms, cpus_ranked):
+    bmark, cmd = choice(benchmarks)
+    print(cpu, bmark, vm)
+    vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+    vm.bname = bmark
+    vm.set_cpus([cpu])
+    active_vms.append(vm)
+
+  stats = real_loosers(interval=1*1000, num=3, vms=active_vms)
+  print(stats)
+
 
 
 if __name__ == '__main__':
