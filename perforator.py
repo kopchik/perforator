@@ -18,6 +18,7 @@ from perf.utils import wait_idleness
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS
+from perf.numa import topology
 
 
 #from itertools import cycle
@@ -64,22 +65,21 @@ class Setup:
     #  vm.stop()
     [vm.kill() for vm in VMS]
 
-
 def cpu_enum():
   """ Enumerate CPU cores, sibblings have adjacent numbers. """
-  from perf.numa import topology
   from copy import copy
   ranked = []
   cpus = copy(topology.all)
-  for cpu in cpus:
+  print("all cpus", cpus)
+  while cpus:
+    cpu = cpus.pop(0)
     ranked.append(cpu)
-    cpus.remove(cpu)
     sibblings = topology.get_thread_sibling(cpu)
     assert len(sibblings) == 1, "only one sibbling is allowed"
     sibbling = sibblings[0]
     ranked.append(sibbling)
     cpus.remove(sibbling)
-  print(ranked)
+  print("CPU cores sorted by sibblings:", ranked)
   return ranked
 
 
@@ -190,9 +190,9 @@ def isolated_sampling(num:int=1,
       if pause: sleep(pause)
       try:
         ipc = vm.ipcstat(interval)
-        result[vm.bname].append(ipc)
+        result[vm].append(ipc)
       except NotCountedError:
-        print("cannot get isolated performance for", vm.bname)
+        print("cannot get isolated performance for", vm, vm.bname)
         pass
     vm.shared()
 
@@ -211,9 +211,9 @@ def shared_sampling(num:int=1,
     for vm in vms:
       try:
         ipc = vm.ipcstat(interval)
-        result[vm.bname].append(ipc)
+        result[vm].append(ipc)
       except NotCountedError:
-        print("cannot get shared performance for", vm.bname)
+        print("cannot get shared performance for", vm, vm.bname)
         pass
       if pause:
         sleep(pause)
@@ -235,9 +235,9 @@ def shared_thr_sampling(num:int=1,
       for i in range(num):
         try:
           ipc = vm.ipcstat(interval)
-          result[vm.bname].append(ipc)
+          result[vm].append(ipc)
         except NotCountedError:
-          print("cannot get shared performance for", vm.bname)
+          print("cannot get shared performance for", vm, vm.bname)
           pass
         if pause:
           sleep(pause)
@@ -266,9 +266,9 @@ def freezing_sampling(num:int,
       if delay: sleep(delay)
       try:
         ipc = vm.ipcstat(interval)
-        result[vm.bname].append(ipc)
+        result[vm].append(ipc)
       except NotCountedError:
-        print("cannot get frozen performance for", vm.bname)
+        print("cannot get frozen performance for", vm, vm.bname)
         pass
       vm.shared()
   return result
@@ -317,9 +317,9 @@ def real_loosers(num=10, interval=10*1000, pause=0.1, vms=None):
     sleep(pause)
 
   result = {}
-  for bench, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
+  for vm, sh_perf, fr_perf in dictzip(shared_perf, frozen_perf):
     ratio = mean(sh_perf) / mean(fr_perf)
-    result[bench] = ratio
+    result[vm] = ratio
   result = sorted(result.items(), key=lambda v: v[1])
   print("Loosers: straight forward technique:\n", result)
 
@@ -600,6 +600,20 @@ def dummy_opt(pause:int=6666666, vms=[]):
       vm.set_cpus([cpu])
   sleep(pause)
 
+
+def mychoice(l):
+  rndbyte = ord(urandom(1))
+  return l[rndbyte%len(l)]
+
+
+def sysperf(t=1):
+  from perf import perftool
+  stat = perftool.kvmstat(time=t, events="instructions cycles".split(),systemwide=True)
+  ipc = stat['instructions'] / stat['cycles']
+  performance = stat['instructions'] / (1000**3)
+  return performance, ipc
+
+
 def dead_opt(vms=None):
   """ Optimize applications when dense packed. """
   ranked = cpu_enum()
@@ -618,41 +632,43 @@ def dead_opt(vms=None):
   return stats
 
 
-def mychoice(l):
-  rndbyte = ord(urandom(1))
-  return l[rndbyte%len(l)]
-
-
-def sysperf(t=1):
-  from perf import perftool
-  stat = perftool.kvmstat(time=t, events="instructions cycles".split(),systemwide=True)
-  ipc = stat['instructions'] / stat['cycles']
-  performance = stat['instructions'] / (1000**3)
-  return performance, ipc
-
-
-def dead_opt_n(n=4, vms=None):
-  """ Spawn N tasks. """
+def dead_opt_n(n=4, num=10, vms=None):
+  """ Dead-simple optimization of partial loads. """
   cpus_ranked = cpu_enum()
-  def report(header):
-    performance, ipc = sysperf(t=10)
+  def report(header, t=30):
+    performance, ipc = sysperf(t=t)
     print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
           .format(header=header, perf=performance, ipc=ipc))
+    return performance, ipc
 
   report("before start")
   benchmarks = list(basis.items())
   # SPAWN
   active_vms = []
+  active_cpus = []
   for i, vm, cpu in zip(range(n), vms, cpus_ranked):
     bmark, cmd = choice(benchmarks)
     print(cpu, bmark, vm)
     vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
     vm.bname = bmark
     vm.set_cpus([cpu])
+    active_cpus.append(cpu)
     active_vms.append(vm)
 
-  stats = real_loosers(interval=1*1000, num=3, vms=active_vms)
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p1, ipc1 = report("after finding loosers")
   print(stats)
+  for i, (vm, degr) in zip(range(2), stats):
+    print(vm, vm.bname)
+    for cpu in topology.no_ht:
+      if cpu not in active_cpus:
+        #TODO: remove old cpu
+        vm.set_cpus([cpu])
+        active_cpus.append(cpu)
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p2, ipc2 = report("after fixing loosers")
+  print("SPEEDUP", p2/p1)
 
 
 
