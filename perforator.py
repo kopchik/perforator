@@ -674,6 +674,14 @@ def dead_opt_n(n=4, num=10, vms=None):
   print("SPEEDUP", p2/p1)
 
 
+def llc_classify(vms=None):
+  for x in range(10):
+    for vm in vms:
+      try:
+        stat = vm.stat(interval=1000, events=['LLC-load-misses'])
+        print(stat)
+      except NotCountedError:
+        print("missed data point")
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
