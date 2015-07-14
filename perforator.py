@@ -65,6 +65,7 @@ class Setup:
     #  vm.stop()
     [vm.kill() for vm in VMS]
 
+
 def cpu_enum():
   """ Enumerate CPU cores, sibblings have adjacent numbers. """
   from copy import copy
@@ -658,6 +659,9 @@ def dead_opt_n(n=4, num=10, vms=None):
     active_cpus.append(cpu)
     active_vms.append(vm)
 
+  print("warmup")
+  sleep(90)
+
   stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
   p1, ipc1 = report("after finding loosers")
   print(stats)
@@ -674,14 +678,74 @@ def dead_opt_n(n=4, num=10, vms=None):
   print("SPEEDUP", p2/p1)
 
 
-def llc_classify(vms=None):
-  for x in range(10):
-    for vm in vms:
-      try:
-        stat = vm.stat(interval=1000, events=['LLC-load-misses'])
-        print(stat)
-      except NotCountedError:
-        print("missed data point")
+def power_consumption(n=4, num=10, vms=None):
+  """ Dead-simple optimization of partial loads. """
+  cpus_ranked = cpu_enum()
+  def report(header, t=30):
+    performance, ipc = sysperf(t=t)
+    print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
+          .format(header=header, perf=performance, ipc=ipc))
+    return performance, ipc
+
+  report("before start", t=3)
+
+  # SPAWN
+  active_vms = []
+  active_cpus = []
+  benchmarks = list(basis.items())
+  for i, vm, cpu in zip(range(n), vms, cpus_ranked):
+    bmark, cmd = choice(benchmarks)
+    print(cpu, bmark, vm)
+    vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+    vm.bname = bmark
+    vm.set_cpus([cpu])
+    active_cpus.append(cpu)
+    active_vms.append(vm)
+
+  input("press enter when done")
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p1, ipc1 = report("after finding loosers")
+  print(stats)
+  for i, (vm, degr) in zip(range(2), stats):
+    print(vm, vm.bname)
+    for cpu in topology.no_ht:
+      if cpu not in active_cpus:
+        for oldcpu in vm.cpus:
+          active_cpus.remove(oldcpu)
+        vm.set_cpus([cpu])
+        active_cpus.append(cpu)
+  print("RELOCATION DONE")
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p2, ipc2 = report("after fixing loosers")
+  print("SPEEDUP", p2/p1)
+  input("press enter when done")
+
+
+
+def llc_classify(interval=180*1000,vms=None):
+  events = ['instructions', 'cycles', 'LLC-stores', 'stalled-cycles-frontend', 'L1-dcache-stores']
+  shared = {}
+  isolated = {}
+  for vm in vms:
+    try:
+      stat = vm.stat(interval=interval, events=events)
+      shared[vm.bname] = stat
+    except NotCountedError:
+      print("missed data point")
+  for vm in vms:
+    try:
+      vm.exclusive()
+      stat = vm.stat(interval=interval, events=events)
+      isolated[vm.bname] = stat
+    except NotCountedError:
+      print("missed data point")
+    finally:
+      vm.shared()
+  print("SHARED:\n", shared)
+  print("ISOLATED:\n", isolated)
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
