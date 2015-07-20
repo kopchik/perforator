@@ -33,6 +33,7 @@ if HOSTNAME in ['limit', 'fx']:
   IDLENESS = 50
   SIBLINGS = True
   RESULTS = "./results/limit/"
+  BOOT_TIME = 15
 
 #  template = Template(
 #    name = "template",
