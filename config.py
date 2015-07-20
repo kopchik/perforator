@@ -102,7 +102,7 @@ else:
 BENCHES = "/home/sources/perftest/benches/"
 basis = dict(
   # INIT DB: sudo -u postgres pgbench -i
-  pgbench = "sudo -u postgres pgbench -c 20 -s 10 -T 100000",
+  pgbench = "sudo -u postgres pgbench -c 20 -s 10 -T 1000000",
   static  = "siege -c 100 -t 666h http://localhost/big_static_file",  # TODO: too CPU consuming,
   wordpress = "siege -c 10 -t 666h http://localhost/",
   # matrix = "/home/sources/perftest/benches/matrix.py -s 1024 -r 1000",
