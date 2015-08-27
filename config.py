@@ -49,11 +49,12 @@ if HOSTNAME in ['limit', 'fx']:
 #  )
 
 
+  print("CPU AFFINITY DISABLED")
   for i, cpu in enumerate(topology.all):
     vm = Template(
         name = "vm%s"%i,
         auto = True,
-        cpus = [i],  # affinity
+#        cpus = [i],  # affinity
         devs = [Bridged(ifname="vm%s"%i, model='e1000', mac="52:54:91:5E:38:0%s"%i, br="intbr"),
                 Drive("/home/virtuals/vm%s.qcow2"%i,
                   master="/home/virtuals/research.qcow2",
