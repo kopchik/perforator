@@ -649,14 +649,65 @@ def dead_opt_n(n=4, num=10, vms=None):
   # SPAWN
   active_vms = []
   active_cpus = []
+  benches = "matrix sdagp matrix sdagp".split()
   for i, vm, cpu in zip(range(n), vms, cpus_ranked):
-    bmark, cmd = choice(benchmarks)
+    #bmark, cmd = choice(benchmarks)
+    bmark = benches.pop(0)
+    cmd = basis[bmark]
     print(cpu, bmark, vm)
     vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
     vm.bname = bmark
     vm.set_cpus([cpu])
     active_cpus.append(cpu)
     active_vms.append(vm)
+
+  print("warm-up, active vms:", active_vms)
+  sleep(90)
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p1, ipc1 = report("after finding loosers")
+  print(stats)
+  for i, (vm, degr) in zip(range(2), stats):
+    print(vm, vm.bname)
+    for cpu in topology.no_ht:
+      if cpu not in active_cpus:
+        #TODO: remove old cpu
+        vm.set_cpus([cpu])
+        active_cpus.append(cpu)
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p2, ipc2 = report("after fixing loosers")
+  print("SPEEDUP", p2/p1)
+
+
+def dead_opt_n2(n=4, num=10, vms=None):
+  """ Like dead_opt_n but more output stats """
+  cpus_ranked = cpu_enum()
+  def report(header, t=30):
+    performance, ipc = sysperf(t=t)
+    print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
+          .format(header=header, perf=performance, ipc=ipc))
+    return performance, ipc
+
+  report("before start")
+  benchmarks = list(basis.items())
+  # SPAWN
+  active_vms = []
+  active_cpus = []
+  benches = "matrix sdagp matrix sdagp".split()
+  for i, vm, cpu in zip(range(n), vms, cpus_ranked):
+    #bmark, cmd = choice(benchmarks)
+    bmark = benches.pop(0)
+    cmd = basis[bmark]
+    print(cpu, bmark, vm)
+    vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+    vm.bname = bmark
+    vm.set_cpus([cpu])
+    active_cpus.append(cpu)
+    active_vms.append(vm)
+
+  print("warm-up, active vms:", active_vms)
+  sleep(90)
 
   stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
   p1, ipc1 = report("after finding loosers")
