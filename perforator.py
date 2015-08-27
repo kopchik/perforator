@@ -10,16 +10,17 @@ from os import urandom
 from random import choice
 from time import sleep
 import argparse
-import pickle
 import time
 
 from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
-from config import basis, VMS, IDLENESS
+from config import basis, VMS, IDLENESS, BOOT_TIME
 from perf.numa import topology
 
+from libvmc import __version__ as vmc_version
+assert vmc_version >= 20
 
 #from itertools import cycle
 
@@ -30,12 +31,16 @@ class Setup:
     self.benchmarks = benchmarks
     self.vms = vms
     self.debug = debug
-    [vm.kill() for vm in vms]
-    sleep(3)
+    if any([vm.kill() for vm in vms]):
+      print("giving old VMs time to die...")
+      sleep(3)
     if any(vm.pid for vm in vms):
       raise Exception("there are VMs still running!")
-    [vm.start() for vm in vms]
-    sleep(10)
+    if any([vm.start() for vm,bmark in zip(vms, benchmarks)]):
+      print("let VMs to boot")
+      sleep(10)
+    else:
+      print("no VM start was requested")
 
   def __enter__(self):
     map = {}
@@ -51,6 +56,9 @@ class Setup:
   def __exit__(self, *args):
     print("tearing down the system")
     for vm in self.vms:
+      if not vm.pid:
+        print(vm, "already dead, not stopping it on tear down")
+        continue
       vm.unfreeze()
       vm.shared()
       if not hasattr(vm, "pipe"):
@@ -64,6 +72,7 @@ class Setup:
     #for vm in self.vms:
     #  vm.stop()
     [vm.kill() for vm in VMS]
+
 
 def cpu_enum():
   """ Enumerate CPU cores, sibblings have adjacent numbers. """
@@ -681,7 +690,7 @@ def dead_opt_n(n=4, num=10, vms=None):
 
 
 def dead_opt_n2(n=4, num=10, vms=None):
-  """ Like dead_opt_n but more output stats """
+  """ Like dead_opt_n but more output stats so we can add more plots to the article"""
   cpus_ranked = cpu_enum()
   def report(header, t=30):
     performance, ipc = sysperf(t=t)
@@ -725,14 +734,155 @@ def dead_opt_n2(n=4, num=10, vms=None):
   print("SPEEDUP", p2/p1)
 
 
-def llc_classify(vms=None):
-  for x in range(10):
-    for vm in vms:
-      try:
-        stat = vm.stat(interval=1000, events=['LLC-load-misses'])
-        print(stat)
-      except NotCountedError:
-        print("missed data point")
+def power_consumption(n=4, num=10, vms=None):
+  """ Dead-simple optimization of partial loads. """
+  cpus_ranked = cpu_enum()
+  def report(header, t=30):
+    performance, ipc = sysperf(t=t)
+    print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
+          .format(header=header, perf=performance, ipc=ipc))
+    return performance, ipc
+
+  report("before start", t=3)
+
+  # SPAWN
+  active_vms = []
+  active_cpus = []
+  benchmarks = list(basis.items())
+  for i, vm, cpu in zip(range(n), vms, cpus_ranked):
+    bmark, cmd = choice(benchmarks)
+    print(cpu, bmark, vm)
+    vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+    vm.bname = bmark
+    vm.set_cpus([cpu])
+    active_cpus.append(cpu)
+    active_vms.append(vm)
+
+  input("press enter when done")
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p1, ipc1 = report("after finding loosers")
+  print(stats)
+  for i, (vm, degr) in zip(range(2), stats):
+    print(vm, vm.bname)
+    for cpu in topology.no_ht:
+      if cpu not in active_cpus:
+        for oldcpu in vm.cpus:
+          active_cpus.remove(oldcpu)
+        vm.set_cpus([cpu])
+        active_cpus.append(cpu)
+  print("RELOCATION DONE")
+
+  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  p2, ipc2 = report("after fixing loosers")
+  print("SPEEDUP", p2/p1)
+  input("press enter when done")
+
+
+
+def llc_classify(interval:int=180*1000, vms=None):
+  events = ['instructions', 'cycles', 'LLC-stores', 'stalled-cycles-frontend', 'L1-dcache-stores']
+  shared = {}
+  isolated = {}
+  for vm in vms:
+    try:
+      stat = vm.stat(interval=interval, events=events)
+      shared[vm.bname] = stat
+    except NotCountedError:
+      print("missed data point")
+  for vm in vms:
+    try:
+      vm.exclusive()
+      stat = vm.stat(interval=interval, events=events)
+      isolated[vm.bname] = stat
+    except NotCountedError:
+      print("missed data point")
+    finally:
+      vm.shared()
+  print("SHARED:\n", shared)
+  print("ISOLATED:\n", isolated)
+
+
+def isolated_performance(interval:int=180*1000, warmup:int=15, vms=None):
+  vm = vms[0]
+  vm.start()
+  sleep(BOOT_TIME)
+  cpu = topology.no_ht[0]
+  vm.set_cpus([cpu])
+
+  result = {}
+  for bmark, cmd in basis.items():
+    wait_idleness(IDLENESS*4)
+    print("measuring", bmark)
+    vm.Popen(cmd)
+    sleep(warmup)
+
+    ipc = vm.ipcstat(interval)
+    result[bmark] = ipc
+
+    ret = vm.pipe.poll()
+    if ret is not None:
+      print("Test {bmark} on {vm} died with {ret}! Manual intervention needed\n\n" \
+            .format(bmark=bmark, vm=vm, ret=ret))
+      import pdb; pdb.set_trace()
+    vm.pipe.killall()
+
+  print(result)
+  return result
+
+
+from itertools import product
+def interference(interval:int=180*1000, warmup:int=15, mode=None, vms=None):
+  assert mode in ['sibling', 'distant']
+  if mode == 'sibling':
+    cpu1 = topology.no_ht[0]
+    cpu2 = topology.ht_map[cpu1][0]
+  else:
+    raise NotImplementedError("TODO")
+
+  print("stopping all but 2 vms because we need only two")
+  for vm in vms[2:]:
+    vm.stop()
+  vm1 = vms[0]
+  vm2 = vms[1]
+  vm1.start()
+  vm2.start()
+
+  sleep(13)
+  vm1.set_cpus([cpu1])
+  vm2.set_cpus([cpu2])
+
+  benchmarks = list(sorted(basis))
+  result = defaultdict(lambda: [None, None])
+  for bmark1, bmark2 in product(benchmarks, repeat=2):
+    if (bmark2, bmark1) in result:
+      continue
+    key = (bmark1, bmark2)
+    print(key)
+
+    wait_idleness(IDLENESS*6)
+    p1 = vm1.Popen(basis[bmark1])
+    sleep(1)  # reduce oscillation when two same applications are launched
+    p2 = vm2.Popen(basis[bmark2])
+    sleep(warmup)
+
+    def get_ipc(idx, vm):
+      ipc = vm.ipcstat(interval)
+      result[key][idx] = ipc
+    threadulator(get_ipc, [(0, vm1), (1, vm2)])
+
+    print(result)
+    for vm in [vm1, vm2]:
+      ret = vm.pipe.poll()
+      if ret is not None:
+        print("Test {bmark} on {vm} died with {ret}! Manual intervention needed\n\n" \
+              .format(bmark=vm.bname, vm=vm, ret=ret))
+        import pdb; pdb.set_trace()
+
+    p1.killall()
+    p2.killall()
+
+
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Run experiments')
@@ -752,7 +902,7 @@ if __name__ == '__main__':
   pin_task(os.getpid(), 6)
 
   with Setup(VMS, args.benches, debug=args.debug):
-    if not args.debug:
+    if not args.debug and args.benches:
       print("benches warm-up for %s seconds" % args.warmup)
       sleep(args.warmup)
     f, fargs = invoke(args.test, globals(), vms=VMS)
@@ -770,5 +920,5 @@ if __name__ == '__main__':
       else:
         fname = args.output
       print("pickling to", fname)
-      pickle.dump(Struct(f=f.__name__, fargs=fargs, result=result, prog_args=args),
+      Pickle.dump(Struct(f=f.__name__, fargs=fargs, result=result, prog_args=args),
                   open(fname, "wb"))
