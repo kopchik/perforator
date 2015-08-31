@@ -10,6 +10,7 @@ from os import urandom
 from random import choice
 from time import sleep
 import argparse
+import pickle
 import time
 
 from perf.perftool import NotCountedError
@@ -19,10 +20,11 @@ from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS, BOOT_TIME
 from perf.numa import topology
 
+from useful.mstring import prints
+
 from libvmc import __version__ as vmc_version
 assert vmc_version >= 20
 
-#from itertools import cycle
 
 class Setup:
   """ Launch all VMS at start, stop them at exit. """
@@ -61,7 +63,7 @@ class Setup:
         continue
       vm.unfreeze()
       vm.shared()
-      if not hasattr(vm, "pipe"):
+      if not hasattr(vm, "pipe") or vm.pipe is None:
         continue
       ret = vm.pipe.poll()
       if ret is not None:
@@ -317,7 +319,7 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   return result
 
 
-def real_loosers(num=10, interval=10*1000, pause=0.1, vms=None):
+def real_loosers3(num=10, interval=10*1000, pause=0.1, vms=None):
   """ Detect starving applications. Improved version """
   shared_perf = defaultdict(list)
   frozen_perf = defaultdict(list)
@@ -334,7 +336,7 @@ def real_loosers(num=10, interval=10*1000, pause=0.1, vms=None):
   result = sorted(result.items(), key=lambda v: v[1])
   print("Loosers: straight forward technique:\n", result)
 
-  return result
+  return result, shared_perf, frozen_perf
 
 
 def delay(num:int=1, interval:int=100, pause:float=0.1, delay:float=0.01, vms=None):
@@ -620,7 +622,7 @@ def mychoice(l):
 
 def sysperf(t=1):
   from perf import perftool
-  stat = perftool.kvmstat(time=t, events="instructions cycles".split(),systemwide=True)
+  stat = perftool.kvmstat(time=t, events="instructions cycles".split(), systemwide=True)
   ipc = stat['instructions'] / stat['cycles']
   performance = stat['instructions'] / (1000**3)
   return performance, ipc
@@ -640,26 +642,30 @@ def dead_opt(vms=None):
 
   sleep(1)  # just in case
 
-  stats = real_loosers(vms=vms)
+  stats, _, _ = real_loosers3(vms=vms)
   return stats
+
+
+def report(header, t=30):
+  performance, ipc = sysperf(t=t)
+  print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
+        .format(header=header, perf=performance, ipc=ipc))
+  return performance, ipc
 
 
 def dead_opt_n(n=4, num=10, vms=None):
   """ Dead-simple optimization of partial loads. """
   cpus_ranked = cpu_enum()
-  def report(header, t=30):
-    performance, ipc = sysperf(t=t)
-    print("{header}: {perf:.2f}B insns, ipc: {ipc:.4f}"
-          .format(header=header, perf=performance, ipc=ipc))
-    return performance, ipc
-
   report("before start")
   benchmarks = list(basis.items())
   # SPAWN
   active_vms = []
   active_cpus = []
+  benches = "matrix sdagp matrix sdagp".split()
   for i, vm, cpu in zip(range(n), vms, cpus_ranked):
-    bmark, cmd = choice(benchmarks)
+    #bmark, cmd = choice(benchmarks)
+    bmark = benches.pop(0)
+    cmd = basis[bmark]
     print(cpu, bmark, vm)
     vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
     vm.bname = bmark
@@ -667,10 +673,10 @@ def dead_opt_n(n=4, num=10, vms=None):
     active_cpus.append(cpu)
     active_vms.append(vm)
 
-  print("warmup")
+  print("warm-up, active vms:", active_vms)
   sleep(90)
 
-  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  stats, _, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
   p1, ipc1 = report("after finding loosers")
   print(stats)
   for i, (vm, degr) in zip(range(2), stats):
@@ -681,9 +687,83 @@ def dead_opt_n(n=4, num=10, vms=None):
         vm.set_cpus([cpu])
         active_cpus.append(cpu)
 
-  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  stats, _, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
   p2, ipc2 = report("after fixing loosers")
   print("SPEEDUP", p2/p1)
+
+
+def dead_opt_new(nr_vms:int=4, nr_perf_samples:int=10, repeat:int=10, vms=None):
+  """ Like old one but reports more data. """
+  sys_speedup = []
+  vm_speedup  = []
+  for x in range(repeat):
+    print(time.time())
+    wait_idleness(IDLENESS*4)
+    sys, vm = dead_opt1(n=nr_vms, num=nr_perf_samples, vms=vms)
+    sys_speedup.append(sys)
+    vm_speedup += vm
+  return Struct(sys_speedup=sys_speedup, vm_speedup=vm_speedup)
+
+
+def dead_opt1(n:int=4, num:int=10, vms=None):
+  """ Like dead_opt_n but more output stats so we can add more plots to the article"""
+  [vm.start() for vm in vms]
+  cpus_ranked = cpu_enum()
+
+  #report("before start")
+  # SPAWN
+  active_vms = []
+  active_cpus = []
+  #benchmarks = "matrix sdagp matrix sdagp".split()
+  benchmarks = list(basis.keys())
+  for i, vm, cpu in zip(range(n), vms, cpus_ranked):
+    #bmark, cmd = choice(benchmarks)
+    bmark = benchmarks.pop(0)
+    cmd = basis[bmark]
+    print(cpu, bmark, vm)
+    vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+    vm.bname = bmark
+    vm.set_cpus([cpu])
+    active_cpus.append(cpu)
+    active_vms.append(vm)
+    sleep(0.2)  # do not start them all simultaneusly
+
+  print("warm-up, active vms:", active_vms)
+  sleep(5)
+  print("TODO: shorter sleep")
+
+  stats, perf_before, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
+  p1, ipc1 = report("after finding loosers")
+  print(stats)
+  relocated_vms = []
+  for i, (vm, degr) in zip(range(2), stats):
+    print(vm, vm.bname)
+    relocated_vms.append(vm)
+    for cpu in topology.no_ht:
+      if cpu not in active_cpus:
+        #TODO: remove old cpu
+        vm.set_cpus([cpu])
+        active_cpus.append(cpu)
+
+  stats_after, perf_after, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
+  prints("BEFORE: {perf_before}\n AFTER: {perf_after}")
+  p2, ipc2 = report("after fixing loosers")
+
+  for vm in vms:
+    if hasattr(vm, "pipe") and vm.pipe:
+      vm.pipe.killall()
+      vm.pipe = None
+
+  # RESULT
+  sys_speedup = p2 / p1
+  vm_speedup  = []
+  #for vm in perf_after.keys():
+  for vm in relocated_vms:
+    r = mean(perf_after[vm]) / mean(perf_before[vm])
+    vm_speedup.append(r)
+  print("SPEEDUP:", sys_speedup)
+  print("IMPROVEMENTS:", vm_speedup)
+  return sys_speedup, vm_speedup
 
 
 def power_consumption(n=4, num=10, vms=None):
@@ -712,7 +792,7 @@ def power_consumption(n=4, num=10, vms=None):
 
   input("press enter when done")
 
-  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  stats, _, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
   p1, ipc1 = report("after finding loosers")
   print(stats)
   for i, (vm, degr) in zip(range(2), stats):
@@ -725,11 +805,10 @@ def power_consumption(n=4, num=10, vms=None):
         active_cpus.append(cpu)
   print("RELOCATION DONE")
 
-  stats = real_loosers(interval=1*1000, num=num, vms=active_vms)
+  stats, _, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
   p2, ipc2 = report("after fixing loosers")
   print("SPEEDUP", p2/p1)
   input("press enter when done")
-
 
 
 def llc_classify(interval:int=180*1000, vms=None):
@@ -906,5 +985,5 @@ if __name__ == '__main__':
       else:
         fname = args.output
       print("pickling to", fname)
-      Pickle.dump(Struct(f=f.__name__, fargs=fargs, result=result, prog_args=args),
+      pickle.dump(Struct(f=f.__name__, fargs=fargs, result=result, prog_args=args),
                   open(fname, "wb"))
