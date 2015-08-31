@@ -756,6 +756,8 @@ def llc_classify(interval:int=180*1000, vms=None):
 
 
 def isolated_performance(interval:int=180*1000, warmup:int=15, vms=None):
+  for vm in vms[1:]:
+    vm.stop()
   vm = vms[0]
   vm.start()
   sleep(BOOT_TIME)
@@ -783,6 +785,39 @@ def isolated_performance(interval:int=180*1000, warmup:int=15, vms=None):
   return result
 
 
+def all_events(interval:int=180*1000, warmup:int=15, vms=None):
+  from perf import perftool
+  events = perftool.get_events()
+  print("monitoring events:", events)
+  for vm in vms[1:]:
+    vm.stop()
+  vm = vms[0]
+  vm.start()
+  sleep(BOOT_TIME)
+  cpu = topology.no_ht[0]
+  vm.set_cpus([cpu])
+
+  result = {}
+  for bmark, cmd in basis.items():
+    wait_idleness(IDLENESS*4)
+    print("measuring", bmark)
+    vm.Popen(cmd)
+    sleep(warmup)
+
+    ipc = vm.stat(interval=interval, events=events)
+    result[bmark] = ipc
+
+    ret = vm.pipe.poll()
+    if ret is not None:
+      print("Test {bmark} on {vm} died with {ret}! Manual intervention needed\n\n" \
+            .format(bmark=bmark, vm=vm, ret=ret))
+      import pdb; pdb.set_trace()
+    vm.pipe.killall()
+
+  print(result)
+  return result
+
+
 from itertools import product
 def interference(interval:int=180*1000, warmup:int=15, mode=None, vms=None):
   assert mode in ['sibling', 'distant']
@@ -790,13 +825,12 @@ def interference(interval:int=180*1000, warmup:int=15, mode=None, vms=None):
     cpu1 = topology.no_ht[0]
     cpu2 = topology.ht_map[cpu1][0]
   else:
-    raise NotImplementedError("TODO")
+    cpu1, cpu2 = topology.no_ht[:2]
 
   print("stopping all but 2 vms because we need only two")
   for vm in vms[2:]:
     vm.stop()
-  vm1 = vms[0]
-  vm2 = vms[1]
+  vm1, vm2 = vms[:2]
   vm1.start()
   vm2.start()
 
