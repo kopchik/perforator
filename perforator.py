@@ -12,6 +12,7 @@ from time import sleep
 import argparse
 import pickle
 import time
+import sys
 
 from perf.perftool import NotCountedError
 from perf.utils import wait_idleness
@@ -59,10 +60,13 @@ class Setup:
     print("tearing down the system")
     for vm in self.vms:
       if not vm.pid:
-        print(vm, "already dead, not stopping it on tear down")
+        #print(vm, "already dead, not stopping it on tear down")
         continue
-      vm.unfreeze()
-      vm.shared()
+      try:
+        vm.unfreeze()
+        vm.shared()
+      except:
+        pass
       if not hasattr(vm, "pipe") or vm.pipe is None:
         continue
       ret = vm.pipe.poll()
@@ -103,6 +107,13 @@ def threadulator(f, params):
   [t.start() for t in threads]
   [t.join() for t in threads]
 
+
+def exclusive(vm, vms):
+  [vm1.freeze() for vm1 in vms if vm1 != vm]
+
+def shared(vms):
+  for vm in vms:
+    vm.unfreeze()
 
 def reverse_isolated(num:int, time:float, pause:float, vms=None):
   result = defaultdict(list)
@@ -275,7 +286,7 @@ def freezing_sampling(num:int,
   for _ in range(num):
     for i, vm in enumerate(vms):
       if pause: sleep(pause)
-      vm.exclusive()
+      exclusive(vm, vms)
       try:
         if delay: sleep(delay)
         ipc = vm.ipcstat(interval)
@@ -283,7 +294,7 @@ def freezing_sampling(num:int,
       except NotCountedError:
         print("cannot get frozen performance for", vm, vm.bname)
         pass
-      vm.shared()
+      shared(vms)
   return result
 
 
@@ -319,12 +330,30 @@ def loosers(num:int=10, interval:int=100, pause:float=0.0, vms=None):
   return result
 
 
-def real_loosers3(num=10, interval=10*1000, pause=0.1, vms=None):
+def loosers_test(vms=None):
+  """ Temporary function just for testing. """
+  from useful.bench import StopWatch
+  started_vms = []
+  for _, vm in zip(range(4), vms):
+    vm.start()
+    started_vms.append(vm)
+  sleep(20)
+  for vm in started_vms:
+    cmd = basis['matrix']
+    vm.pipe = vm.Popen(cmd, stdout=DEVNULL, stderr=DEVNULL)
+  sleep(10)
+  with StopWatch() as watch:
+     real_loosers3(num=20, interval=200, pause=0.1, vms=started_vms)
+  print(watch)
+
+
+def real_loosers3(num:int=10, interval:int=10*1000, pause:float=0.1, vms=None):
   """ Detect starving applications. Improved version """
   shared_perf = defaultdict(list)
   frozen_perf = defaultdict(list)
+  prints("real_loosers3 iterations ", end="")
   for i,x in enumerate(range(num)):
-    print("iteration", i)
+    prints("{i}/{num}", end=" "); sys.stdout.flush()
     shared_thr_sampling(num=1, interval=interval, result=shared_perf, vms=vms)
     freezing_sampling(num=1,   interval=interval, pause=0.1, result=frozen_perf, vms=vms)
     sleep(pause)
@@ -692,19 +721,19 @@ def dead_opt_n(n=4, num=10, vms=None):
   print("SPEEDUP", p2/p1)
 
 
-def dead_opt_new(nr_vms:int=4, nr_perf_samples:int=10, repeat:int=10, vms=None):
+def dead_opt_new(nr_vms:int=4, nr_samples:int=10, repeat:int=10, vms=None):
   """ Like old one but reports more data. """
   sys_speedup = []
   vm_speedup  = []
   for x in range(repeat):
     wait_idleness(IDLENESS*4)
-    sys, vm = dead_opt1(n=nr_vms, num=nr_perf_samples, vms=vms)
+    sys, vm = dead_opt1(nr_vms=nr_vms, nr_samples=nr_samples, vms=vms)
     sys_speedup.append(sys)
     vm_speedup += vm
   return Struct(sys_speedup=sys_speedup, vm_speedup=vm_speedup)
 
 
-def dead_opt1(n:int=4, num:int=10, vms=None):
+def dead_opt1(nr_vms:int=4, nr_samples:int=10, interval=200, vms=None):
   """ Like dead_opt_n but more output stats so we can add more plots to the article"""
   [vm.start() for vm in vms]
   cpus_ranked = cpu_enum()
@@ -715,7 +744,7 @@ def dead_opt1(n:int=4, num:int=10, vms=None):
   active_cpus = []
   #benchmarks = "matrix sdagp matrix sdagp".split()
   benchmarks = list(basis.keys())
-  for i, vm, cpu in zip(range(n), vms, cpus_ranked):
+  for i, vm, cpu in zip(range(nr_vms), vms, cpus_ranked):
     #bmark, cmd = choice(benchmarks)
     bmark = benchmarks.pop(0)
     cmd = basis[bmark]
@@ -731,7 +760,7 @@ def dead_opt1(n:int=4, num:int=10, vms=None):
   sleep(10)
   print("TODO: shorter sleep")
 
-  stats, perf_before, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
+  stats, perf_before, _ = real_loosers3(interval=interval, num=nr_samples, vms=active_vms)
   p1, ipc1 = report("after finding loosers")
   print(stats)
   relocated_vms = []
@@ -744,7 +773,7 @@ def dead_opt1(n:int=4, num:int=10, vms=None):
         vm.set_cpus([cpu])
         active_cpus.append(cpu)
 
-  stats_after, perf_after, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
+  stats_after, perf_after, _ = real_loosers3(interval=interval, num=nr_samples, vms=active_vms)
   prints("BEFORE: {perf_before}\n AFTER: {perf_after}")
   p2, ipc2 = report("after fixing loosers")
 
