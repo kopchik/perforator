@@ -697,7 +697,6 @@ def dead_opt_new(nr_vms:int=4, nr_perf_samples:int=10, repeat:int=10, vms=None):
   sys_speedup = []
   vm_speedup  = []
   for x in range(repeat):
-    print(time.time())
     wait_idleness(IDLENESS*4)
     sys, vm = dead_opt1(n=nr_vms, num=nr_perf_samples, vms=vms)
     sys_speedup.append(sys)
@@ -729,7 +728,7 @@ def dead_opt1(n:int=4, num:int=10, vms=None):
     sleep(0.2)  # do not start them all simultaneusly
 
   print("warm-up, active vms:", active_vms)
-  sleep(5)
+  sleep(10)
   print("TODO: shorter sleep")
 
   stats, perf_before, _ = real_loosers3(interval=1*1000, num=num, vms=active_vms)
