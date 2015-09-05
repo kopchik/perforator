@@ -727,6 +727,7 @@ def dead_opt_new(nr_vms:int=4, nr_samples:int=10, repeat:int=10, vms=None):
   reloc_speedup  = []
   all_speedup = []
   for x in range(repeat):
+    prints("ITERATION {x} out of {repeat}")
     wait_idleness(IDLENESS*4)
     sys, vm, all = dead_opt1(nr_vms=nr_vms, nr_samples=nr_samples, vms=vms)
     sys_speedup.append(sys)
