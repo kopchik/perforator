@@ -686,7 +686,7 @@ def dead_opt_n(n=4, num=10, vms=None):
   """ Dead-simple optimization of partial loads. """
   cpus_ranked = cpu_enum()
   report("before start")
-  benchmarks = list(basis.items())
+  #benchmarks = list(basis.items())
   # SPAWN
   active_vms = []
   active_cpus = []
@@ -724,14 +724,16 @@ def dead_opt_n(n=4, num=10, vms=None):
 def dead_opt_new(nr_vms:int=4, nr_samples:int=10, repeat:int=10, vms=None):
   """ Like old one but reports more data. """
   sys_speedup = []
-  vm_speedup  = []
+  reloc_speedup  = []
+  all_speedup = []
   for x in range(repeat):
     print(time.time())
     wait_idleness(IDLENESS*4)
-    sys, vm = dead_opt1(nr_vms=nr_vms, nr_samples=nr_samples, vms=vms)
+    sys, vm, all = dead_opt1(nr_vms=nr_vms, nr_samples=nr_samples, vms=vms)
     sys_speedup.append(sys)
-    vm_speedup += vm
-  return Struct(sys_speedup=sys_speedup, vm_speedup=vm_speedup)
+    reloc_speedup += vm
+    all_speedup += all
+  return Struct(sys_speedup=sys_speedup, reloc_speedup=reloc_speedup, all_speedup=all_speedup)
 
 
 def dead_opt1(nr_vms:int=4, nr_samples:int=10, interval=200, vms=None):
@@ -785,14 +787,18 @@ def dead_opt1(nr_vms:int=4, nr_samples:int=10, interval=200, vms=None):
 
   # RESULT
   sys_speedup = p2 / p1
-  vm_speedup  = []
+  reloc_speedup  = []
+  all_speedup = []
   #for vm in perf_after.keys():
   for vm in relocated_vms:
     r = mean(perf_after[vm]) / mean(perf_before[vm])
-    vm_speedup.append(r)
+    reloc_speedup.append(r)
+  for vm in active_vms:
+    r = mean(perf_after[vm]) / mean(perf_before[vm])
+    all_speedup.append(r)
   print("SPEEDUP:", sys_speedup)
-  print("IMPROVEMENTS:", vm_speedup)
-  return sys_speedup, vm_speedup
+  print("IMPROVEMENTS:", all_speedup)
+  return sys_speedup, reloc_speedup, all_speedup
 
 
 def power_consumption(n=4, num=10, vms=None):
