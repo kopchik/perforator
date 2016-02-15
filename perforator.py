@@ -15,7 +15,7 @@ import time
 import sys
 
 from perf.perftool import NotCountedError
-from perf.utils import wait_idleness
+from perf.utils import wait_idleness, threadulator
 from useful.small import dictzip, invoke
 from useful.mystruct import Struct
 from config import basis, VMS, IDLENESS, BOOT_TIME
@@ -96,16 +96,6 @@ def cpu_enum():
     cpus.remove(sibbling)
   print("CPU cores sorted by sibblings:", ranked)
   return ranked
-
-
-def threadulator(f, params):
-  """ Execute routine actions in parallel. """
-  threads = []
-  for param in params:
-    t = Thread(target=f, args=param)
-    threads.append(t)
-  [t.start() for t in threads]
-  [t.join() for t in threads]
 
 
 def exclusive(vm, vms):

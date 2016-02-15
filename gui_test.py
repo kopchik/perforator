@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from itertools import cycle
 from libgui import *
 import time
 from sys import exit
@@ -23,8 +24,7 @@ def gui():
       )
 
 
-  loop(root)
-
+ # loop(root)
 
   root.initroot()
   v = 0
